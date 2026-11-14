@@ -153,6 +153,8 @@ async function handleComfyHttp(req, res, targetPath) {
   delete headers['x-forwarded-for']
   headers.host = upstream.host
   if (upstreamAuth) headers.authorization = upstreamAuth
+  // 浏览器可能用 chunked 上传参考图；重算长度，避免 transfer-encoding 与 content-length 冲突
+  delete headers['transfer-encoding']
   if (body.length) headers['content-length'] = body.length
   else delete headers['content-length']
 
