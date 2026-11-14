@@ -40,9 +40,10 @@ GitHub Actions 在 push 到 `main` 时自动构建并推到
 ```bash
 mkdir -p /mnt/user/appdata/ai-pose-gallery-zh
 cd /mnt/user/appdata/ai-pose-gallery-zh
-# 从本仓库取 docker-compose.yml 与 .env.example
+# 从本仓库取 compose 与配置样例
 curl -O https://raw.githubusercontent.com/mjy378283319/ai-pose-gallery-zh/main/docker-compose.yml
-cp .env.example .env      # 没有该文件就手写，见仓库 .env.example
+curl -O https://raw.githubusercontent.com/mjy378283319/ai-pose-gallery-zh/main/.env.example
+cp .env.example .env      # compose 已内置默认值；只改 COMFYUI_URL 时可省略 .env
 docker compose pull
 docker compose up -d
 ```
