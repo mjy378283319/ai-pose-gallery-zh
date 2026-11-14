@@ -13,6 +13,13 @@
 </details>
 
 **在线演示：** <https://ai-pose-gallery.anhao.app/>
+
+> 🐳 **本 fork 增加 NAS / Docker 部署**：完整镜像 upstream，另加 `server.mjs` 同源代理、
+> `Dockerfile`、两份 compose、GHCR 自动构建与 Z-Image INT8 API 工作流，
+> 可装在 A 房 Unraid 上并跨房间远程控制 B 房 ComfyUI。
+> 完整步骤见 [docs/DOCKER-NAS.md](docs/DOCKER-NAS.md)；
+> 预构建镜像 `ghcr.io/mjy378283319/ai-pose-gallery-zh:latest`。
+> 相对 upstream 的代码改动只有一处：`src/services/aiGenerator.ts` 把 ComfyUI 默认地址改为 `/comfy`。
 **原始站点：**
 - 姿势库（白模）：<https://ai-pose-gallery.pages.dev/>
 - 姿势深度图库（Depth）：<https://ai-pose-depth-gallery.pages.dev/>

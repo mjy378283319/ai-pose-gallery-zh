@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+dist
+docs
+skills
+*.log
+*.tmp
+.DS_Store
+backups
+_unused

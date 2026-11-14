@@ -1,0 +1,20 @@
+# 兜底：GHCR 拉不动时在 NAS 上本地构建（需先把本仓库放到 NAS，约 1.17 GB）
+# docker compose -f docker-compose.build.yml up -d --build
+services:
+  pose-atlas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-pose-gallery-zh:local
+    container_name: ai-pose-gallery-zh
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8198}:8080"
+    environment:
+      PORT: "8080"
+      COMFYUI_URL: "${COMFYUI_URL:-http://host.docker.internal:18189}"
+      COMFY_BASE_URL: "${COMFY_BASE_URL:-/comfy}"
+      PROXY_ALLOWED_ORIGINS: "${PROXY_ALLOWED_ORIGINS:-}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

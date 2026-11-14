@@ -489,7 +489,13 @@ export function isLocalDevHost(): boolean {
 /** ComfyUI Desktop 默认端口 8000；便携版 / 源码版默认 8188 */
 // 注意：PROVIDER_META 在模块初始化时就会调用本函数，这里不能引用后面定义的 const
 export function defaultComfyBaseUrl(): string {
-  return isLocalDevHost() ? '/comfy' : 'http://127.0.0.1:8000'
+  // Docker/NAS 版：浏览器统一请求同源 /comfy，由 server.mjs 反代到 COMFYUI_URL。
+  // 这样公网 HTTPS 页面也能控制另一房间的 ComfyUI，绕开 CORS 白名单与混合内容限制。
+  // server.mjs 会把 COMFY_BASE_URL 注入 window.__APP_CONFIG__（默认 /comfy）。
+  const cfg = (globalThis as unknown as { __APP_CONFIG__?: { comfyBaseUrl?: string } }).__APP_CONFIG__
+  return typeof cfg?.comfyBaseUrl === 'string' && cfg.comfyBaseUrl.trim()
+    ? cfg.comfyBaseUrl.trim()
+    : '/comfy'
 }
 
 export function comfyCandidateUrls(current = ''): string[] {

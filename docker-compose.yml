@@ -1,0 +1,24 @@
+# A 房 Unraid：直接拉 GHCR 预构建镜像（推荐，素材已打包进镜像，不用 clone）
+# 用法：cp .env.example .env && 改 COMFYUI_URL && docker compose up -d
+services:
+  pose-atlas:
+    image: ghcr.io/mjy378283319/ai-pose-gallery-zh:latest
+    container_name: ai-pose-gallery-zh
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8198}:8080"
+    environment:
+      PORT: "8080"
+      # B 房 ComfyUI，经 A 房 frps 隧道；18189 = INT8 主用，18188 = 备用
+      COMFYUI_URL: "${COMFYUI_URL:-http://host.docker.internal:18189}"
+      # 浏览器侧统一走同源 /comfy，由容器内 server.mjs 反代到 COMFYUI_URL
+      COMFY_BASE_URL: "${COMFY_BASE_URL:-/comfy}"
+      PROXY_ALLOWED_ORIGINS: "${PROXY_ALLOWED_ORIGINS:-}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
