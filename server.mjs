@@ -318,12 +318,11 @@ function handleUserdataFile(res, kind, encoded) {
     return json(res, 400, 'Bad filename')
   }
   if (!name || name.includes('/') || name.includes('\\') || name.startsWith('.')) return json(res, 400, 'Bad filename')
-  const file = path.join(USERDATA_DIR, kind === 'caption' ? 'captions' : 'images', name)
-  // 同时兼容扁平目录与 images/ 子目录
+  // 同时兼容扁平目录与 images/ 子目录，取第一个真实存在的候选
   const candidates = kind === 'caption'
     ? [safePath(USERDATA_DIR, name.replace(/\.[^.]+$/, '') + '.txt')]
     : [safePath(USERDATA_DIR, path.join('images', name)), safePath(USERDATA_DIR, name)]
-  const target = candidates.find(Boolean) || file
+  const target = candidates.find((c) => c && fs.existsSync(c)) || null
   fs.stat(target, (err, st) => {
     if (err || !st.isFile()) return json(res, 404, 'Not found')
     res.writeHead(200, {
