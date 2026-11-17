@@ -7,6 +7,7 @@
  *  - /comfy/*              ComfyUI 反向代理（HTTP + WebSocket），去掉 Origin
  *                          让浏览器以为 ComfyUI 与本站同源，从而可以
  *                          跨房间 / 经公网控制 B 房 ComfyUI，无需 --enable-cors-header
+ *  - /userdata/*           用户自有素材（挂卷，只读）：列表与图片
  *
  * 环境变量：
  *   PORT                    监听端口，默认 8080
@@ -14,6 +15,7 @@
  *                          支持内嵌凭据 http://user:pass@host:port
  *   COMFY_BASE_URL          注入浏览器的 ComfyUI Base URL，默认 /comfy
  *   PROXY_ALLOWED_ORIGINS  /api/proxy 额外放行域名，逗号/分号/空白分隔
+ *   USERDATA_DIR            用户素材挂载目录，默认 /app/userdata
  */
 import http from 'node:http'
 import https from 'node:https'
@@ -24,7 +26,9 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 8080)
 const COMFY_BASE_URL = process.env.COMFY_BASE_URL || '/comfy'
+const USERDATA_DIR = path.resolve(process.env.USERDATA_DIR || path.join(ROOT, 'userdata'))
 const MAX_PROXY_BODY = 10 * 1024 * 1024
+const USER_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'])
 
 const upstream = new URL(process.env.COMFYUI_URL || 'http://127.0.0.1:8188')
 const upstreamAuth = upstream.username
@@ -241,6 +245,96 @@ function serveFile(res, filePath, cache = 'public, max-age=3600') {
   })
 }
 
+/**
+ * 用户自有素材（只读，来自挂卷 USERDATA_DIR）：
+ *  - /userdata/list               返回 {items:[{name,url,caption,size,mtime}]}
+ *  - /userdata/img/<文件名>        返回图片本身
+ *  - /userdata/caption/<文件名>.txt 返回同名 txt 文字（可选）
+ * captions.json 可选：{ "IMG_001.jpg": "文字说明" }，不存在则用同名 .txt。
+ */
+function captionFor(name, captions, cb) {
+  if (Object.hasOwn(captions, name)) return cb(String(captions[name] ?? ''))
+  const txt = safePath(USERDATA_DIR, name.replace(/\.[^.]+$/, '') + '.txt')
+  if (!txt) return cb('')
+  fs.readFile(txt, 'utf8', (err, text) => cb(err ? '' : text.trim()))
+}
+
+function handleUserdataList(res) {
+  fs.mkdir(USERDATA_DIR, { recursive: true }, () => {
+    fs.readFile(path.join(USERDATA_DIR, 'captions.json'), 'utf8', (err, raw) => {
+      let captions = {}
+      if (!err) {
+        try {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) captions = parsed
+        } catch {}
+      }
+      // 同时扫描根目录与 images/ 子目录（同名去重），兼容两种整理习惯
+      fs.readdir(USERDATA_DIR, { withFileTypes: true }, (err2, entries) => {
+        if (err2) return json(res, 200, JSON.stringify({ items: [], error: err2.message }))
+        const collect = (list, base) =>
+          list
+            .filter((e) => e.isFile() && USER_IMAGE_EXT.has(path.extname(e.name).toLowerCase()))
+            .map((e) => ({ name: e.name, full: path.join(base, e.name) }))
+        const rootFiles = collect(entries, USERDATA_DIR)
+        fs.readdir(path.join(USERDATA_DIR, 'images'), { withFileTypes: true }, (err3, sub) => {
+          const seen = new Set(rootFiles.map((f) => f.name))
+          const files = rootFiles.concat(err3 ? [] : collect(sub, path.join(USERDATA_DIR, 'images')).filter((f) => !seen.has(f.name)))
+          files.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+          const items = []
+          let pending = files.length
+          if (!pending) {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+            return res.end(JSON.stringify({ ok: true, items }))
+          }
+          for (const f of files) {
+            fs.stat(f.full, (statErr, st) => {
+              captionFor(f.name, captions, (caption) => {
+                items.push({
+                  name: f.name,
+                  url: `/userdata/img/${encodeURIComponent(f.name)}`,
+                  caption,
+                  size: statErr ? 0 : st.size,
+                  mtime: statErr ? '' : st.mtime.toISOString(),
+                })
+                if (--pending === 0) {
+                  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+                  res.end(JSON.stringify({ ok: true, items }))
+                }
+              })
+            })
+          }
+        })
+      })
+    })
+  })
+}
+
+function handleUserdataFile(res, kind, encoded) {
+  let name
+  try {
+    name = decodeURIComponent(encoded)
+  } catch {
+    return json(res, 400, 'Bad filename')
+  }
+  if (!name || name.includes('/') || name.includes('\\') || name.startsWith('.')) return json(res, 400, 'Bad filename')
+  const file = path.join(USERDATA_DIR, kind === 'caption' ? 'captions' : 'images', name)
+  // 同时兼容扁平目录与 images/ 子目录
+  const candidates = kind === 'caption'
+    ? [safePath(USERDATA_DIR, name.replace(/\.[^.]+$/, '') + '.txt')]
+    : [safePath(USERDATA_DIR, path.join('images', name)), safePath(USERDATA_DIR, name)]
+  const target = candidates.find(Boolean) || file
+  fs.stat(target, (err, st) => {
+    if (err || !st.isFile()) return json(res, 404, 'Not found')
+    res.writeHead(200, {
+      'Content-Type': kind === 'caption' ? 'text/plain; charset=utf-8' : (MIME[path.extname(target).toLowerCase()] || 'application/octet-stream'),
+      'Content-Length': st.size,
+      'Cache-Control': 'no-store',
+    })
+    fs.createReadStream(target).pipe(res)
+  })
+}
+
 function serveIndex(res) {
   const indexFile = path.join(ROOT, 'dist', 'index.html')
   fs.readFile(indexFile, 'utf8', (err, html) => {
@@ -308,13 +402,22 @@ const server = http.createServer((req, res) => {
   const p = url.pathname
   if (p === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ ok: true, comfyui: upstreamOrigin, comfyBaseUrl: COMFY_BASE_URL }))
+    res.end(JSON.stringify({ ok: true, comfyui: upstreamOrigin, comfyBaseUrl: COMFY_BASE_URL, userdata: USERDATA_DIR }))
     return
   }
   if (p === '/api/proxy') return void handleApiProxy(req, res)
   if (p === '/comfy' || p.startsWith('/comfy/')) {
     const rest = p.replace(/^\/comfy/, '') || '/'
     return void handleComfyHttp(req, res, `${rest}${url.search}`)
+  }
+  if (p === '/userdata/list') {
+    if (req.method !== 'GET') return json(res, 405, 'Method Not Allowed')
+    return void handleUserdataList(res)
+  }
+  if (p.startsWith('/userdata/img/') || p.startsWith('/userdata/caption/')) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, 'Method Not Allowed')
+    const kind = p.startsWith('/userdata/caption/') ? 'caption' : 'img'
+    return void handleUserdataFile(res, kind, p.slice(`/userdata/${kind}/`.length))
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, 'Method Not Allowed')
   handleStatic(req, res, p)
@@ -335,4 +438,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[pose-atlas] listening on :${PORT}`)
   console.log(`[pose-atlas] ComfyUI upstream = ${upstreamOrigin}`)
   console.log(`[pose-atlas] browser ComfyUI base = ${COMFY_BASE_URL}`)
+  console.log(`[pose-atlas] userdata dir = ${USERDATA_DIR}`)
 })
