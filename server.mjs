@@ -29,6 +29,7 @@ const COMFY_BASE_URL = process.env.COMFY_BASE_URL || '/comfy'
 const USERDATA_DIR = path.resolve(process.env.USERDATA_DIR || path.join(ROOT, 'userdata'))
 const MAX_PROXY_BODY = 10 * 1024 * 1024
 const USER_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'])
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 const upstream = new URL(process.env.COMFYUI_URL || 'http://127.0.0.1:8188')
 const upstreamAuth = upstream.username
@@ -93,6 +94,11 @@ function originAllowed(target) {
 const json = (res, status, message) => {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify({ error: { message } }))
+}
+
+const sendJson = (res, status, payload) => {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  res.end(JSON.stringify(payload))
 }
 
 function readBody(req, limit = MAX_PROXY_BODY) {
@@ -250,6 +256,8 @@ function serveFile(res, filePath, cache = 'public, max-age=3600') {
  *  - /userdata/list               返回 {items:[{name,url,caption,size,mtime}]}
  *  - /userdata/img/<文件名>        返回图片本身
  *  - /userdata/caption/<文件名>.txt 返回同名 txt 文字（可选）
+ *  - POST /userdata/upload         上传 {name, data(base64), caption}
+ *  - POST /userdata/caption        更新 {name, caption} 到 captions.json
  * captions.json 可选：{ "IMG_001.jpg": "文字说明" }，不存在则用同名 .txt。
  */
 function captionFor(name, captions, cb) {
@@ -271,7 +279,7 @@ function handleUserdataList(res) {
       }
       // 同时扫描根目录与 images/ 子目录（同名去重），兼容两种整理习惯
       fs.readdir(USERDATA_DIR, { withFileTypes: true }, (err2, entries) => {
-        if (err2) return json(res, 200, JSON.stringify({ items: [], error: err2.message }))
+        if (err2) return sendJson(res, 200, { items: [], error: err2.message })
         const collect = (list, base) =>
           list
             .filter((e) => e.isFile() && USER_IMAGE_EXT.has(path.extname(e.name).toLowerCase()))
@@ -307,6 +315,97 @@ function handleUserdataList(res) {
         })
       })
     })
+  })
+}
+
+function safeUserName(raw) {
+  if (typeof raw !== 'string') return null
+  const name = raw.trim().replace(/\\/g, '/').split('/').pop() || ''
+  if (!name || name.startsWith('.') || name.includes('/') || name.includes('\\')) return null
+  if (!USER_IMAGE_EXT.has(path.extname(name).toLowerCase())) return null
+  return name.replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
+}
+
+function updateCaptions(updates, cb) {
+  const file = path.join(USERDATA_DIR, 'captions.json')
+  fs.readFile(file, 'utf8', (err, raw) => {
+    let cap = {}
+    if (!err) {
+      try {
+        const p = JSON.parse(raw)
+        if (p && typeof p === 'object' && !Array.isArray(p)) cap = p
+      } catch {}
+    }
+    for (const [k, v] of Object.entries(updates)) cap[k] = v
+    fs.writeFile(file, JSON.stringify(cap, null, 2) + '\n', 'utf8', (wErr) => cb(wErr))
+  })
+}
+
+async function handleUserdataUpload(req, res) {
+  let raw
+  try {
+    raw = await readBody(req, 30 * 1024 * 1024)
+  } catch {
+    return json(res, 413, '请求体过大')
+  }
+  let body
+  try {
+    body = JSON.parse(raw.toString('utf8'))
+  } catch {
+    return json(res, 400, '无效的 JSON')
+  }
+  const name = safeUserName(body.name)
+  if (!name) return json(res, 400, '仅支持图片文件，且文件名不能含路径')
+  if (typeof body.data !== 'string') return json(res, 400, '缺少 data')
+  let buffer
+  try {
+    buffer = Buffer.from(body.data, 'base64')
+  } catch {
+    return json(res, 400, 'data 不是有效 base64')
+  }
+  if (!buffer.length) return json(res, 400, '文件为空')
+  if (buffer.length > MAX_UPLOAD_BYTES) return json(res, 413, '单张图片上限 20 MB')
+  // 图片魔数校验，防止把任意文件改成图片后缀
+  const isJpg = buffer[0] === 0xff && buffer[1] === 0xd8
+  const isPng = buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const isGif = buffer.subarray(0, 3).toString() === 'GIF'
+  const isWebp = buffer.subarray(8, 12).toString() === 'WEBP'
+  if (!(isJpg || isPng || isGif || isWebp)) return json(res, 400, '不是有效图片（jpg/png/gif/webp）')
+
+  fs.mkdir(path.join(USERDATA_DIR, 'images'), { recursive: true }, (mkErr) => {
+    if (mkErr) return json(res, 500, `无法创建目录（挂载是否只读？）：${mkErr.message}`)
+    fs.writeFile(path.join(USERDATA_DIR, 'images', name), buffer, (wErr) => {
+      if (wErr) return json(res, 500, `写入失败（挂载是否只读？）：${wErr.message}`)
+      const caption = typeof body.caption === 'string' ? body.caption.trim() : ''
+      if (!caption) return sendJson(res, 200, { ok: true, name, caption: '' })
+      updateCaptions({ [name]: caption }, (cErr) => {
+        if (cErr) return json(res, 500, `图片已上传，但文字保存失败：${cErr.message}`)
+        sendJson(res, 200, { ok: true, name, caption })
+      })
+    })
+  })
+}
+
+async function handleUserdataCaption(req, res) {
+  let raw
+  try {
+    raw = await readBody(req, 1024 * 1024)
+  } catch {
+    return json(res, 413, '文字过长')
+  }
+  let body
+  try {
+    body = JSON.parse(raw.toString('utf8'))
+  } catch {
+    return json(res, 400, '无效的 JSON')
+  }
+  const name = safeUserName(body.name)
+  if (!name) return json(res, 400, '文件名无效')
+  if (typeof body.caption !== 'string') return json(res, 400, '缺少 caption')
+  if (body.caption.length > 20000) return json(res, 413, '文字上限 20000 字')
+  updateCaptions({ [name]: body.caption.trim() }, (err) => {
+    if (err) return json(res, 500, `保存失败（挂载是否只读？）：${err.message}`)
+    sendJson(res, 200, { ok: true, name, caption: body.caption.trim() })
   })
 }
 
@@ -412,6 +511,14 @@ const server = http.createServer((req, res) => {
   if (p === '/userdata/list') {
     if (req.method !== 'GET') return json(res, 405, 'Method Not Allowed')
     return void handleUserdataList(res)
+  }
+  if (p === '/userdata/upload') {
+    if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
+    return void handleUserdataUpload(req, res)
+  }
+  if (p === '/userdata/caption') {
+    if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
+    return void handleUserdataCaption(req, res)
   }
   if (p.startsWith('/userdata/img/') || p.startsWith('/userdata/caption/')) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, 'Method Not Allowed')

@@ -20,8 +20,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # 你自己的图片 + 文字放这里，更新镜像不丢失
-      - "${USERDATA_DIR:-./userdata}:/app/userdata:ro"
+      # 你自己的图片 + 文字放这里，可写（网页可直接上传），更新镜像不丢失
+      - "${USERDATA_DIR:-./userdata}:/app/userdata:rw"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
