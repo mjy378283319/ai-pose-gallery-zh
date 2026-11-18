@@ -267,55 +267,76 @@ function captionFor(name, captions, cb) {
   fs.readFile(txt, 'utf8', (err, text) => cb(err ? '' : text.trim()))
 }
 
-function handleUserdataList(res) {
-  fs.mkdir(USERDATA_DIR, { recursive: true }, () => {
-    fs.readFile(path.join(USERDATA_DIR, 'captions.json'), 'utf8', (err, raw) => {
-      let captions = {}
-      if (!err) {
-        try {
-          const parsed = JSON.parse(raw)
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) captions = parsed
-        } catch {}
-      }
-      // 同时扫描根目录与 images/ 子目录（同名去重），兼容两种整理习惯
-      fs.readdir(USERDATA_DIR, { withFileTypes: true }, (err2, entries) => {
-        if (err2) return sendJson(res, 200, { items: [], error: err2.message })
-        const collect = (list, base) =>
-          list
-            .filter((e) => e.isFile() && USER_IMAGE_EXT.has(path.extname(e.name).toLowerCase()))
-            .map((e) => ({ name: e.name, full: path.join(base, e.name) }))
-        const rootFiles = collect(entries, USERDATA_DIR)
-        fs.readdir(path.join(USERDATA_DIR, 'images'), { withFileTypes: true }, (err3, sub) => {
-          const seen = new Set(rootFiles.map((f) => f.name))
-          const files = rootFiles.concat(err3 ? [] : collect(sub, path.join(USERDATA_DIR, 'images')).filter((f) => !seen.has(f.name)))
-          files.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-          const items = []
-          let pending = files.length
-          if (!pending) {
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-            return res.end(JSON.stringify({ ok: true, items }))
-          }
-          for (const f of files) {
-            fs.stat(f.full, (statErr, st) => {
-              captionFor(f.name, captions, (caption) => {
-                items.push({
-                  name: f.name,
-                  url: `/userdata/img/${encodeURIComponent(f.name)}`,
-                  caption,
-                  size: statErr ? 0 : st.size,
-                  mtime: statErr ? '' : st.mtime.toISOString(),
-                })
-                if (--pending === 0) {
-                  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-                  res.end(JSON.stringify({ ok: true, items }))
-                }
-              })
-            })
-          }
-        })
+const TEXT_DIR = () => path.join(USERDATA_DIR, 'texts')
+
+async function handleUserdataList(res) {
+  try {
+    await fs.promises.mkdir(USERDATA_DIR, { recursive: true })
+    let captions = {}
+    try {
+      const parsed = JSON.parse(await fs.promises.readFile(path.join(USERDATA_DIR, 'captions.json'), 'utf8'))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) captions = parsed
+    } catch {}
+
+    const readDirSafe = async (dir) => {
+      try { return await fs.promises.readdir(dir, { withFileTypes: true }) } catch { return [] }
+    }
+    const collectImages = (list, base) => list
+      .filter((e) => e.isFile() && USER_IMAGE_EXT.has(path.extname(e.name).toLowerCase()))
+      .map((e) => ({ name: e.name, full: path.join(base, e.name) }))
+
+    // 图片：根目录 + images/ 子目录，同名去重
+    const rootEntries = await readDirSafe(USERDATA_DIR)
+    const subEntries = await readDirSafe(path.join(USERDATA_DIR, 'images'))
+    const seen = new Set()
+    const files = []
+    for (const f of [...collectImages(rootEntries, USERDATA_DIR), ...collectImages(subEntries, path.join(USERDATA_DIR, 'images'))]) {
+      if (seen.has(f.name)) continue
+      seen.add(f.name)
+      files.push(f)
+    }
+    files.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+
+    const items = []
+    for (const f of files) {
+      const caption = await new Promise((resolve) => captionFor(f.name, captions, resolve))
+      let st = null
+      try { st = await fs.promises.stat(f.full) } catch {}
+      items.push({
+        kind: 'image',
+        name: f.name,
+        url: `/userdata/img/${encodeURIComponent(f.name)}`,
+        caption,
+        size: st?.size || 0,
+        mtime: st ? st.mtime.toISOString() : '',
       })
-    })
-  })
+    }
+
+    // 独立文字：texts/*.txt（与图片字幕彻底分离）
+    const textEntries = await readDirSafe(TEXT_DIR())
+    const textFiles = textEntries
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.txt'))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    for (const e of textFiles) {
+      const full = path.join(TEXT_DIR(), e.name)
+      let text = '', st = null
+      try { text = (await fs.promises.readFile(full, 'utf8')).trim() } catch {}
+      try { st = await fs.promises.stat(full) } catch {}
+      items.push({
+        kind: 'text',
+        name: e.name,
+        label: e.name.replace(/\.txt$/i, ''),
+        url: null,
+        caption: text,
+        size: st?.size || 0,
+        mtime: st ? st.mtime.toISOString() : '',
+      })
+    }
+
+    sendJson(res, 200, { ok: true, items })
+  } catch (err) {
+    sendJson(res, 200, { ok: true, items: [], error: err instanceof Error ? err.message : '读取失败' })
+  }
 }
 
 function safeUserName(raw) {
@@ -339,6 +360,46 @@ function updateCaptions(updates, cb) {
     for (const [k, v] of Object.entries(updates)) cap[k] = v
     fs.writeFile(file, JSON.stringify(cap, null, 2) + '\n', 'utf8', (wErr) => cb(wErr))
   })
+}
+
+function safeTextName(raw) {
+  if (typeof raw !== 'string') return null
+  let name = raw.trim().replace(/\\/g, '/').split('/').pop() || ''
+  name = name.replace(/\.txt$/i, '')
+  // 允许中英文、数字、空格、下划线、连字符；其余替换为下划线
+  name = name.replace(/[^\w\u4e00-\u9fa5 \-]/g, '_').trim()
+  if (!name) return null
+  if (name.length > 80) name = name.slice(0, 80)
+  return name + '.txt'
+}
+
+async function handleUserdataTextSave(req, res) {
+  let raw
+  try { raw = await readBody(req, 2 * 1024 * 1024) } catch { return json(res, 413, '文字过长') }
+  let body
+  try { body = JSON.parse(raw.toString('utf8')) } catch { return json(res, 400, '无效的 JSON') }
+  const name = safeTextName(body.name)
+  if (!name) return json(res, 400, '标题无效')
+  const text = typeof body.text === 'string' ? body.text : ''
+  if (text.length > 100000) return json(res, 413, '文字上限 10 万字')
+  try {
+    await fs.promises.mkdir(TEXT_DIR(), { recursive: true })
+    await fs.promises.writeFile(path.join(TEXT_DIR(), name), text, 'utf8')
+    sendJson(res, 200, { ok: true, name, text })
+  } catch (err) {
+    json(res, 500, `保存失败（挂载是否只读？）：${err instanceof Error ? err.message : err}`)
+  }
+}
+
+async function handleUserdataTextDelete(req, res, url) {
+  const name = safeTextName(url.searchParams.get('name') || '')
+  if (!name) return json(res, 400, '标题无效')
+  try {
+    await fs.promises.unlink(path.join(TEXT_DIR(), name))
+    sendJson(res, 200, { ok: true, name })
+  } catch (err) {
+    json(res, 500, `删除失败：${err instanceof Error ? err.message : err}`)
+  }
 }
 
 async function handleUserdataUpload(req, res) {
@@ -519,6 +580,11 @@ const server = http.createServer((req, res) => {
   if (p === '/userdata/caption') {
     if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
     return void handleUserdataCaption(req, res)
+  }
+  if (p === '/userdata/text') {
+    if (req.method === 'POST') return void handleUserdataTextSave(req, res)
+    if (req.method === 'DELETE') return void handleUserdataTextDelete(req, res, url)
+    return json(res, 405, 'Method Not Allowed')
   }
   if (p.startsWith('/userdata/img/') || p.startsWith('/userdata/caption/')) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, 'Method Not Allowed')

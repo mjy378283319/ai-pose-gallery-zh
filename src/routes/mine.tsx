@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { CheckIcon, CopyIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, UploadIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -13,8 +13,10 @@ export const Route = createFileRoute('/mine')({
 })
 
 interface MineItem {
+  kind?: 'image' | 'text'
   name: string
-  url: string
+  label?: string
+  url: string | null
   caption: string
   size: number
   mtime: string
@@ -51,6 +53,9 @@ function MinePage() {
   const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [textTitle, setTextTitle] = useState('')
+  const [textBody, setTextBody] = useState('')
+  const [savingText, setSavingText] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -126,20 +131,66 @@ function MinePage() {
     void load()
   }
 
+  const saveText = async () => {
+    if (!textBody.trim()) return toast.info('先写点文字')
+    setSavingText(true)
+    try {
+      const res = await fetch('/userdata/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: textTitle.trim() || `文字 ${new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '')}`,
+          text: textBody,
+        }),
+      })
+      const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
+      if (!res.ok || !out.ok) throw new Error(out.error?.message || '保存失败')
+      toast.success('文字已保存到 NAS')
+      setTextTitle(''); setTextBody('')
+      void load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSavingText(false)
+    }
+  }
+
+  const saveTextItem = async (item: MineItem) => {
+    const res = await fetch('/userdata/text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: item.label || item.name.replace(/\.txt$/i, ''), text: editText }),
+    })
+    const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
+    if (!res.ok || !out.ok) return toast.error(out.error?.message || '保存失败')
+    toast.success('文字已保存')
+    setEditing(null)
+    void load()
+  }
+
+  const deleteTextItem = async (item: MineItem) => {
+    const res = await fetch(`/userdata/text?name=${encodeURIComponent(item.name)}`, { method: 'DELETE' })
+    const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
+    if (!res.ok || !out.ok) return toast.error(out.error?.message || '删除失败')
+    toast.success('已删除')
+    void load()
+  }
+
   const add = (item: MineItem) => {
+    if (!item.url) return toast.info('纯文字不能加入图片配方，请点「提示词」')
     addExtraImage({ name: item.caption || item.name, url: item.url })
     setAdded((prev) => new Set(prev).add(item.name))
     toast.success(`已加入配方：${item.caption || item.name}`)
   }
 
   const useText = (item: MineItem) => {
-    if (!item.caption) return toast.info('这张图没有配文字')
+    if (!item.caption) return toast.info('这条素材没有文字')
     setCustomPrompt(item.caption)
     toast.success('文字已填入合成台提示词')
   }
 
   const copyText = async (item: MineItem) => {
-    if (!item.caption) return toast.info('这张图没有配文字')
+    if (!item.caption) return toast.info('这条素材没有文字')
     await navigator.clipboard.writeText(item.caption)
     toast.success('文字已复制')
   }
@@ -186,12 +237,39 @@ function MinePage() {
         </div>
       </div>
 
+      {/* 纯文字区 */}
+      <div className="mt-3 space-y-2 rounded-2xl border bg-card p-4">
+        <div className="flex items-center gap-2">
+          <PencilIcon className="size-4 text-muted-foreground" />
+          <span className="text-sm font-medium">直接添加文字</span>
+          <span className="text-xs text-muted-foreground">（不传图片，存为独立文字素材）</span>
+        </div>
+        <Input
+          value={textTitle}
+          onChange={(e) => setTextTitle(e.target.value)}
+          placeholder="标题（留空自动用时间）"
+        />
+        <textarea
+          value={textBody}
+          onChange={(e) => setTextBody(e.target.value)}
+          rows={3}
+          className="w-full rounded-lg border bg-background p-2.5 text-sm"
+          placeholder="粘贴提示词或任意文字，保存后可一键填入合成台"
+        />
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => void saveText()} disabled={savingText || !textBody.trim()}>
+            <PlusIcon className="size-3.5" />
+            {savingText ? '保存中…' : '保存文字'}
+          </Button>
+        </div>
+      </div>
+
       <div className="mt-4 flex items-center gap-2">
         <div className="relative flex-1">
           <SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索文件名或文字" className="pl-9" />
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground">{filtered.length} / {items.length} 张</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{filtered.length} / {items.length} 项</span>
       </div>
 
       {error && (
@@ -205,7 +283,7 @@ function MinePage() {
         <div className="mt-6 rounded-2xl border border-dashed p-10 text-center">
           <FolderOpenIcon className="mx-auto size-10 text-muted-foreground" />
           <div className="mt-3 font-medium">还没有自己的素材</div>
-          <div className="mt-1 text-xs text-muted-foreground">在上方选择图片上传，或把图片放到 NAS 的 userdata 目录。</div>
+          <div className="mt-1 text-xs text-muted-foreground">在上方上传图片或添加文字；也可把文件放到 NAS 的 userdata 目录。</div>
         </div>
       )}
 
@@ -213,52 +291,77 @@ function MinePage() {
 
       {filtered.length > 0 && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {filtered.map((item) => (
-            <div key={item.name} className="overflow-hidden rounded-xl border bg-card">
-              <div className="relative aspect-square bg-muted">
-                <img src={item.url} alt={item.caption || item.name} loading="lazy" className="size-full object-cover" />
-                <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{formatSize(item.size)}</div>
-              </div>
-              <div className="space-y-2 p-2.5">
-                {editing === item.name ? (
-                  <div className="space-y-1">
-                    <textarea
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-lg border bg-background p-2 text-xs"
-                      placeholder="输入文字说明"
-                    />
-                    <div className="flex gap-1">
-                      <Button size="sm" className="flex-1 px-2" onClick={() => void saveCaption(item)}>保存</Button>
-                      <Button size="sm" variant="ghost" className="px-2" onClick={() => setEditing(null)}>取消</Button>
+          {filtered.map((item) => {
+            const isText = item.kind === 'text'
+            const editSave = isText ? saveTextItem : saveCaption
+            return (
+              <div key={item.name} className="overflow-hidden rounded-xl border bg-card">
+                {isText ? (
+                  <div className="flex min-h-24 items-start gap-2 bg-muted/40 p-2.5">
+                    <FileTextIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium">{item.label || item.name}</div>
+                      <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-[11px] text-muted-foreground">{item.caption || '（空）'}</div>
                     </div>
                   </div>
                 ) : (
-                  <>
-                    <div className="line-clamp-2 min-h-8 text-xs" title={item.caption || item.name}>{item.caption || <span className="text-muted-foreground">{item.name}</span>}</div>
-                    <div className="flex flex-wrap gap-1">
-                      <Button size="sm" className="flex-1 px-2" onClick={() => add(item)}>
-                        {added.has(item.name) ? <CheckIcon className="size-3.5" /> : <PlusIcon className="size-3.5" />}
-                        加入配方
-                      </Button>
-                      <Button size="sm" variant="outline" className="px-2" title="编辑文字" onClick={() => { setEditing(item.name); setEditText(item.caption) }}>
-                        <PencilIcon className="size-3.5" />
-                      </Button>
-                      {item.caption && (
-                        <>
+                  <div className="relative aspect-square bg-muted">
+                    <img src={item.url || undefined} alt={item.caption || item.name} loading="lazy" className="size-full object-cover" />
+                    <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{formatSize(item.size)}</div>
+                  </div>
+                )}
+                <div className="space-y-2 p-2.5">
+                  {editing === item.name ? (
+                    <div className="space-y-1">
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border bg-background p-2 text-xs"
+                        placeholder={isText ? '输入文字' : '输入图片说明'}
+                      />
+                      <div className="flex gap-1">
+                        <Button size="sm" className="flex-1 px-2" onClick={() => void editSave(item)}>保存</Button>
+                        <Button size="sm" variant="ghost" className="px-2" onClick={() => setEditing(null)}>取消</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {!isText && <div className="line-clamp-2 min-h-8 text-xs" title={item.caption || item.name}>{item.caption || <span className="text-muted-foreground">{item.name}</span>}</div>}
+                      <div className="flex flex-wrap gap-1">
+                        {isText ? (
+                          <Button size="sm" className="flex-1 px-2" onClick={() => useText(item)}>
+                            填入提示词
+                          </Button>
+                        ) : (
+                          <Button size="sm" className="flex-1 px-2" onClick={() => add(item)}>
+                            {added.has(item.name) ? <CheckIcon className="size-3.5" /> : <PlusIcon className="size-3.5" />}
+                            加入配方
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="px-2" title="编辑" onClick={() => { setEditing(item.name); setEditText(item.caption) }}>
+                          <PencilIcon className="size-3.5" />
+                        </Button>
+                        {item.caption && !isText && (
                           <Button size="sm" variant="outline" className="px-2" title="文字填入提示词" onClick={() => useText(item)}>提示词</Button>
+                        )}
+                        {item.caption && (
                           <Button size="sm" variant="ghost" className="px-2" title="复制文字" onClick={() => void copyText(item)}>
                             <CopyIcon className="size-3.5" />
                           </Button>
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
+                        )}
+                        {isText && (
+                          <Button size="sm" variant="ghost" className="px-2 text-destructive" title="删除" onClick={() => void deleteTextItem(item)}>
+                            <Trash2Icon className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </>
