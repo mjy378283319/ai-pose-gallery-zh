@@ -105,7 +105,7 @@ export interface WorkflowParameterOverrides {
 
 export interface ComfyUiParams {
   parameterOverrides?: WorkflowParameterOverrides
-  workflowPreset: 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img' | 'custom'
+  workflowPreset: 'zimage_int8_3img' | 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img' | 'custom'
   workflowJson: string
   promptNodeId: string
   portraitNodeId: string
