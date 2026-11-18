@@ -55,6 +55,7 @@ import {
   parseComfyWorkflowNodes,
   PROVIDER_META,
   stitchRecipeCanvas,
+  workflowSupportsOptionalImages,
   STYLE_PRESETS,
 } from '@/services/aiGenerator'
 import { poseImagePath, poseThumbPath, referenceImageUrl, uploadedReferences } from '@/lib/recipeImages'
@@ -282,7 +283,9 @@ function StudioPage() {
     }
   }
 
-  const missingReferences = activeProvider === 'comfyui' ? [
+  // Omni 工作流支持可选参考图：纯文字 / 单图 / 任意组合都能生成，不强制三个槽位。
+  const optionalReferences = activeProvider === 'comfyui' && workflowSupportsOptionalImages(apiConfig.comfyuiParams.workflowJson)
+  const missingReferences = activeProvider === 'comfyui' && !optionalReferences ? [
     { label: '人像', node: apiConfig.comfyuiParams.portraitNodeId, image: recipe.portrait },
     { label: '服装', node: apiConfig.comfyuiParams.costumeNodeId, image: recipe.costume },
     { label: '姿势', node: apiConfig.comfyuiParams.poseNodeId, image: recipe.pose },

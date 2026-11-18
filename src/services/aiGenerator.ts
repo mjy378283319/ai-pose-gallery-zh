@@ -745,6 +745,58 @@ export function autoDetectComfyMappings(workflowJson: string): ComfyNodeMappings
   return { promptNodeId, portraitNodeId, costumeNodeId, poseNodeId, stitchedNodeId }
 }
 
+// Z-Image Omni 节点的 image1/image2/image3 都是可选的：
+// 不提供的槽位会从提示词中省略，因此工作流支持「纯文字 / 单图 / 双图 / 三图」任意组合。
+// 对这类工作流，空槽位不应报错，而应把对应的 LoadImage 节点及其连线一起移除。
+export function workflowSupportsOptionalImages(workflowJson: string): boolean {
+  try {
+    const parsed = JSON.parse(workflowJson)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    return Object.values<any>(parsed).some((node) => node?.class_type === 'TextEncodeZImageOmni')
+  } catch {
+    return false
+  }
+}
+
+// 从工作流里彻底移除一个图片节点，并断开所有指向它的输入连线。
+// 用于 Omni 类工作流中未选择的槽位（保留节点会加载不存在的占位图而报 400）。
+export function removeWorkflowImageNode(workflow: Record<string, any>, nodeId: string): void {
+  if (!nodeId || nodeId === 'none') return
+
+  // 只沿「图片处理链」向下级联删除：LoadImage -> ImageScale/ResizeAndPadImage/... 这类
+  // 输出 IMAGE 的预处理节点。绝不删除消费者（TextEncodeZImageOmni / KSampler），
+  // 否则会连带破坏整个工作流。
+  const IMAGE_PREPROCESSORS = new Set([
+    'ImageScale', 'ImageScaleBy', 'ImageScaleToTotalPixels', 'ImageScaleToMaxDimension',
+    'ResizeAndPadImage', 'ImageResizeKJ', 'ImageResizeKJv2', 'FluxKontextImageScale',
+    'ImageCrop', 'CenterCropImages', 'ImagePadForOutpaint', 'LoadImageGoohai',
+  ])
+  const removed = new Set<string>([nodeId])
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const [id, node] of Object.entries<any>(workflow)) {
+      if (removed.has(id) || !node?.inputs) continue
+      if (!IMAGE_PREPROCESSORS.has(String(node.class_type))) continue
+      const references = Object.values(node.inputs).some((value) =>
+        Array.isArray(value) && removed.has(String(value[0])),
+      )
+      if (references) {
+        removed.add(id)
+        changed = true
+      }
+    }
+  }
+  for (const id of removed) delete workflow[id]
+
+  // 断开所有剩余节点（如 Omni）指向被删节点的输入。
+  for (const node of Object.values<any>(workflow)) {
+    if (!node?.inputs) continue
+    for (const [key, value] of Object.entries(node.inputs)) {
+      if (Array.isArray(value) && removed.has(String(value[0]))) delete node.inputs[key]
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 网络请求与中文错误
 // ---------------------------------------------------------------------------
@@ -1440,14 +1492,22 @@ async function generateWithComfyUi(params: {
   if (invalidSlots.length) {
     throw new Error(`[ComfyUI] ${invalidSlots.map((slot) => slot.label).join('、')}节点映射已失效，请重新识别或选择节点`)
   }
+  // Omni 类工作流（含 TextEncodeZImageOmni）图片可选：允许纯文字 / 单图 / 双图 / 三图。
+  // 其余工作流仍要求槽位必填，避免加载不存在的占位图导致 ComfyUI 400。
+  const optionalImages = workflowSupportsOptionalImages(cp.workflowJson)
   const missingSlots = slotUploads.filter((slot) => slot.nodeId && slot.nodeId !== 'none' && !slot.src && parsedInfo.imageNodes.find((node) => node.id === slot.nodeId)?.emptyValue === undefined)
-  if (missingSlots.length) {
+  if (missingSlots.length && !optionalImages) {
     throw new Error(`[ComfyUI] 请先选择或上传：${missingSlots.map((slot) => slot.label).join('、')}`)
   }
 
   for (const slot of slotUploads) {
     if (!slot.nodeId || slot.nodeId === 'none' || !workflow[slot.nodeId]?.inputs) continue
     if (!slot.src) {
+      if (optionalImages) {
+        // 空槽位：移除该 LoadImage 节点并断开 Omni 的 image 连线，等价于不提供参考图。
+        removeWorkflowImageNode(workflow, slot.nodeId)
+        continue
+      }
       const emptyValue = parsedInfo.imageNodes.find((node) => node.id === slot.nodeId)?.emptyValue
       if (emptyValue !== undefined) {
         workflow[slot.nodeId].inputs.image = emptyValue
