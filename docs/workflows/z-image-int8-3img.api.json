@@ -183,51 +183,51 @@
     }
   },
   "40": {
-    "class_type": "ImageScale",
+    "class_type": "ResizeAndPadImage",
     "inputs": {
       "image": [
         "10",
         0
       ],
-      "upscale_method": "area",
-      "width": 1024,
-      "height": 1024,
-      "crop": "center"
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "统一尺寸(人像)"
+      "title": "等比缩放补边(人像)"
     }
   },
   "41": {
-    "class_type": "ImageScale",
+    "class_type": "ResizeAndPadImage",
     "inputs": {
       "image": [
         "11",
         0
       ],
-      "upscale_method": "area",
-      "width": 1024,
-      "height": 1024,
-      "crop": "center"
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "统一尺寸(服装)"
+      "title": "等比缩放补边(服装)"
     }
   },
   "42": {
-    "class_type": "ImageScale",
+    "class_type": "ResizeAndPadImage",
     "inputs": {
       "image": [
         "12",
         0
       ],
-      "upscale_method": "area",
-      "width": 1024,
-      "height": 1024,
-      "crop": "center"
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "统一尺寸(姿势)"
+      "title": "等比缩放补边(姿势)"
     }
   }
 }

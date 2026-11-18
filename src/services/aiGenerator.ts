@@ -466,7 +466,243 @@ function extractUniversalImage(json: any): string | null {
 type ComfyNode = { class_type: string; inputs: Record<string, any>; _meta?: { title?: string; studio?: { imageRole?: string } } }
 type ComfyWorkflow = Record<string, ComfyNode>
 
-export type ComfyPresetId = 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img'
+// B 房本机可用：Z-Image Turbo INT8 三图合一（人像+服装+姿势），
+// 已含等比缩放补边节点，兼容纯文字/单图/任意组合。
+const zimageInt8ThreeImageWorkflow = {
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "z_image_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Z-Image-Turbo INT8 扩散模型"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b_fp8_mixed.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen3-4B 文本编码器"
+    }
+  },
+  "8": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "_meta": {
+      "title": "VAE（同时编码三张参考图）"
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "portrait_placeholder.png"
+    },
+    "_meta": {
+      "title": "#1 人像参考 (Portrait) · 由合成台上传"
+    }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "costume_placeholder.png"
+    },
+    "_meta": {
+      "title": "#2 服装参考 (Costume) · 由合成台上传"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "pose_placeholder.png"
+    },
+    "_meta": {
+      "title": "#3 姿势参考 (Pose) · 由合成台上传"
+    }
+  },
+  "3": {
+    "class_type": "TextEncodeZImageOmni",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "prompt": "{{prompt}}",
+      "auto_resize_images": true,
+      "vae": [
+        "8",
+        0
+      ],
+      "image1": [
+        "40",
+        0
+      ],
+      "image2": [
+        "41",
+        0
+      ],
+      "image3": [
+        "42",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "三图融合提示词（由合成台注入）"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Negative (CFG=1 蒸馏模型不生效)"
+    }
+  },
+  "5": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "输出尺寸 1024×1024"
+    }
+  },
+  "6": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "shift": 3.0
+    },
+    "_meta": {
+      "title": "AuraFlow shift 3.0"
+    }
+  },
+  "30": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "6",
+        0
+      ],
+      "seed": 729703840979498,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "5",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler 8 步 / CFG 1"
+    }
+  },
+  "7": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "30",
+        0
+      ],
+      "vae": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "VAE 解码"
+    }
+  },
+  "31": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "7",
+        0
+      ],
+      "filename_prefix": "three-in-one-int8"
+    },
+    "_meta": {
+      "title": "保存三合一结果"
+    }
+  },
+  "40": {
+    "class_type": "ResizeAndPadImage",
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ],
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
+    },
+    "_meta": {
+      "title": "等比缩放补边(人像)"
+    }
+  },
+  "41": {
+    "class_type": "ResizeAndPadImage",
+    "inputs": {
+      "image": [
+        "11",
+        0
+      ],
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
+    },
+    "_meta": {
+      "title": "等比缩放补边(服装)"
+    }
+  },
+  "42": {
+    "class_type": "ResizeAndPadImage",
+    "inputs": {
+      "image": [
+        "12",
+        0
+      ],
+      "target_width": 1024,
+      "target_height": 1024,
+      "padding_color": "black",
+      "interpolation": "lanczos"
+    },
+    "_meta": {
+      "title": "等比缩放补边(姿势)"
+    }
+  }
+} as ComfyWorkflow
+
+export type ComfyPresetId = 'zimage_int8_3img' | 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img'
 
 export interface ComfyNodeMappings {
   promptNodeId: string
@@ -615,12 +851,17 @@ function buildQwen21Workflow(threeImages: boolean): ComfyWorkflow {
   return wf
 }
 
-export const DEFAULT_COMFY_PRESET: ComfyPresetId = 'qwen2509_3img'
+export const DEFAULT_COMFY_PRESET: ComfyPresetId = 'zimage_int8_3img'
 
 export const COMFYUI_WORKFLOW_TEMPLATES: Record<
   ComfyPresetId,
   { label: string; workflow: ComfyWorkflow; defaults: ComfyNodeMappings }
 > = {
+  zimage_int8_3img: {
+    label: 'Z-Image INT8 三图合一（本机可用 · 推荐）',
+    workflow: zimageInt8ThreeImageWorkflow,
+    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: '11', poseNodeId: '12', stitchedNodeId: 'none' },
+  },
   qwen2509_3img: {
     label: 'Qwen Image Edit 2509 三图合成（人像+服装+姿势）· 推荐',
     workflow: qwen2509ThreeImageWorkflow as ComfyWorkflow,
@@ -824,10 +1065,12 @@ export function ensureOmniImageScaling(workflow: Record<string, any>): number {
     // 已经过尺寸统一节点 → 跳过（避免重复缩放）
     if (/^(ImageScale|ImageScaleBy|ImageScaleToTotalPixels|ImageScaleToMaxDimension|ResizeAndPadImage|FluxKontextImageScale)$/.test(String(upstream.class_type))) continue
     const scaleId = nextId()
+    // 用等比缩放 + 补边，而不是 ImageScale 的强制方形中心裁剪：
+    // 图库原图是 1366x2048 竖图，裁成 1024x1024 会丢掉大半人物并产生重采样噪点。
     workflow[scaleId] = {
-      class_type: 'ImageScale',
-      inputs: { image: [String(link[0]), link[1] ?? 0], upscale_method: 'area', width: 1024, height: 1024, crop: 'center' },
-      _meta: { title: `自动统一尺寸(${key})` },
+      class_type: 'ResizeAndPadImage',
+      inputs: { image: [String(link[0]), link[1] ?? 0], target_width: 1024, target_height: 1024, padding_color: 'black', interpolation: 'lanczos' },
+      _meta: { title: `自动等比缩放(${key})` },
     }
     omni.inputs[key] = [scaleId, 0]
     added += 1
@@ -1671,7 +1914,10 @@ export async function generateCharacterImage(params: {
       ? Object.values(recipe.workflowImages || {}).map((image) => image.url) : []),
   ].filter(Boolean) as string[]
 
-  if (!rawSources.length) {
+  // Omni 工作流支持纯文字文生图（image1/2/3 全可选），无需任何参考图。
+  // 其余情况仍要求至少 1 张参考图。
+  const allowTextOnly = provider === 'comfyui' && workflowSupportsOptionalImages(config.comfyuiParams.workflowJson)
+  if (!rawSources.length && !allowTextOnly) {
     throw new Error('请先选择或上传至少 1 张参考图')
   }
 
