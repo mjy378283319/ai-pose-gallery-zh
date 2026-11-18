@@ -56,6 +56,7 @@ function OverlayPage() {
 
   const [selected, setSelected] = useState<SelectedImage | null>(null)
   const [description, setDescription] = useState('')
+  const [picked, setPicked] = useState<string[]>([]) // 已加入文字描述的素材名（有序）
   const [mineItems, setMineItems] = useState<MineItem[]>([])
   const [loadingMine, setLoadingMine] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -93,8 +94,7 @@ function OverlayPage() {
     }
   }, [generationProgress?.message, isGenerating])
 
-  // 把选中的图片设为工作流的人像参考槽位。当前 Z-Image 单图稳定工作流只认这一个槽位，
-  // 所以无论素材内容是人像/服装/姿势，都从这里作为「参考图 + 文字」的输入。
+  // 把图设为唯一视觉参考（当前 Z-Image 单图工作流只认人像槽位）。
   const useAsReference = async (name: string, url: string) => {
     setPicking(true)
     try {
@@ -107,7 +107,7 @@ function OverlayPage() {
       setCostume(null)
       setPose(null)
       setSelected({ name, url })
-      toast.success('参考图已就位，写一句描述即可生成')
+      toast.success('已设为视觉参考图')
     } catch {
       toast.error('图片加载失败，请换一张')
     } finally {
@@ -115,21 +115,39 @@ function OverlayPage() {
     }
   }
 
-  const pickMine = (item: MineItem) => {
-    if (!item.url) return
-    // 关键：素材图自带的文字描述（caption）就是提示词，点选时一并带入，
-    // 让「参考图 + 它的文字」真正一起参与生成。
+  // 方案 B 核心：把素材的文字描述累加/移除到提示词。多张图（人像/服装/姿势）的意图
+  // 全部靠文字保留，只有一张图作为视觉参考——绕开 Z-Image 三图参考的已知问题。
+  const toggleCaption = (item: MineItem) => {
     const caption = (item.caption || '').trim()
-    if (caption) {
-      setDescription((prev) => {
-        const current = prev.trim()
-        if (!current || current === caption) return caption
-        if (current.includes(caption)) return current
-        return `${current}\n${caption}`
-      })
-      toast.success('已带入这张素材的文字描述，可直接生成')
+    if (!caption) {
+      toast.info('这张素材没有文字描述，可到「我的素材」编辑后重试')
+      return
     }
+    if (picked.includes(item.name)) {
+      setPicked((prev) => prev.filter((n) => n !== item.name))
+      setDescription((prev) => prev.split('\n').filter((line) => line.trim() !== caption).join('\n'))
+      toast.info('已移除这张的文字描述')
+    } else {
+      setPicked((prev) => [...prev, item.name])
+      setDescription((prev) => {
+        const lines = prev.split('\n').map((l) => l.trim()).filter(Boolean)
+        if (lines.includes(caption)) return prev
+        return [...lines, caption].join('\n')
+      })
+      toast.success(`已加入文字描述（共 ${picked.length + 1} 张）`)
+    }
+  }
+
+  const setAsReference = (item: MineItem) => {
+    if (!item.url) return
     void useAsReference(item.label || item.name, item.url)
+  }
+
+  const clearAll = () => {
+    setDescription('')
+    setPicked([])
+    setSelected(null)
+    setPortrait(null)
   }
 
   const onFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -162,10 +180,10 @@ function OverlayPage() {
       return
     }
     if (!description.trim()) {
-      toast.info('写一句你想要的画面描述')
+      toast.info('先从素材加入文字描述，或自己写一句画面描述')
       return
     }
-    // 不选图 = 纯文生图；选了图 = 单图参考生成。startGeneration 的 overridePrompt 直接用用户写的描述。
+    // 提示词 = 多张素材的文字汇总（+用户手动补充）；视觉参考只有一张。
     await startGeneration(description.trim())
   }
 
@@ -175,7 +193,7 @@ function OverlayPage() {
     <>
       <PageHeader
         title="素材生图"
-        description="选一张素材图作为参考，写下你想要的画面，交给 B 房 ComfyUI 生成新图。生成只走本机显卡。"
+        description="多张素材的文字描述拼成提示词，只选一张当视觉参考——三张图的意图靠文字保留，稳定出图。"
         actions={
           <Button variant="outline" size="sm" asChild>
             <Link to="/studio">
@@ -196,42 +214,45 @@ function OverlayPage() {
         </div>
       )}
 
+      <div className="mt-4 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-xs leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground">怎么用：</span>
+        ① 从「我的素材」点「+文字」把每张图的描述都加进来（人像、服装、姿势可以全加）→
+        ② 点其中一张的缩略图「设为参考」（建议选人像图）→
+        ③ 右侧检查拼好的描述、可补充修改 → 点「生成」。
+        文字负责保留三张图的信息，参考图只给一张，避开三图参考的已知问题。
+      </div>
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
         <div className="space-y-3">
           <div className="space-y-3 rounded-2xl border bg-card p-4">
             <div className="flex items-center gap-2">
               <ImagePlusIcon className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">1. 选一张参考图（可选）</span>
+              <span className="text-sm font-medium">1. 选参考图 + 加入文字</span>
             </div>
 
             {selected ? (
-              <div className="flex items-center gap-3 rounded-xl border bg-background p-2">
-                <img src={selected.url} alt="参考图" className="size-16 shrink-0 rounded-lg object-cover" />
+              <div className="flex items-center gap-3 rounded-xl border border-primary/60 bg-background p-2">
+                <img src={selected.url} alt="参考图" className="size-14 shrink-0 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{selected.name}</div>
                   <div className="flex items-center gap-1 text-xs text-emerald-600">
-                    <CheckIcon className="size-3.5" /> 已设为参考图
+                    <CheckIcon className="size-3.5" /> 视觉参考图
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="px-2"
-                  onClick={() => { setSelected(null); setPortrait(null) }}
-                >
+                <Button size="sm" variant="ghost" className="px-2" onClick={() => { setSelected(null); setPortrait(null) }}>
                   <XIcon className="size-3.5" />
                 </Button>
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground">
-                从下面「我的素材」选一张，或上传本地图片。这张图会作为生成的参考（人像 / 服装 / 姿势图都可以）。
+              <div className="rounded-xl border border-dashed p-2.5 text-xs text-muted-foreground">
+                还没设参考图——点下面素材的缩略图设为参考（也可以不选，纯文字生成）。
               </div>
             )}
 
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void onFileChange(e)} />
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => fileRef.current?.click()} disabled={picking}>
-                <UploadIcon className="size-3.5" /> 上传本地图片
+                <UploadIcon className="size-3.5" /> 上传本地
               </Button>
               <Button size="sm" variant="outline" onClick={useRecent} disabled={picking || !history.length}>
                 <WandSparklesIcon className="size-3.5" /> 用上一张生成图
@@ -241,31 +262,54 @@ function OverlayPage() {
             <div className="space-y-1.5 border-t pt-3">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <FolderOpenIcon className="size-3.5" />
-                我的素材（点击选用）
+                我的素材（点图设参考 · 点 +文字 加描述）
                 <button type="button" className="ml-auto underline" onClick={() => void loadMine()} disabled={loadingMine}>
                   {loadingMine ? '刷新中' : '刷新'}
                 </button>
               </div>
-              <div className="max-h-52 space-y-1 overflow-y-auto pr-1">
+              <div className="max-h-[300px] space-y-1 overflow-y-auto pr-1">
                 {mineImages.length ? (
-                  mineImages.map((item) => (
-                    <button
-                      key={item.name}
-                      type="button"
-                      className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-xs hover:bg-accent ${selected?.url === item.url ? 'border-primary' : ''}`}
-                      onClick={() => pickMine(item)}
-                      disabled={picking}
-                    >
-                      <img src={item.url!} alt="" className="size-8 shrink-0 rounded object-cover" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{item.label || item.name}</span>
-                        {item.caption && <span className="block truncate text-muted-foreground">{item.caption}</span>}
-                      </span>
-                      <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    </button>
-                  ))
+                  mineImages.map((item) => {
+                    const isRef = selected?.url === item.url
+                    const isPicked = picked.includes(item.name)
+                    return (
+                      <div
+                        key={item.name}
+                        className={`flex items-center gap-1.5 rounded-lg border px-1.5 py-1.5 ${isRef ? 'border-primary' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          title="设为视觉参考图"
+                          onClick={() => setAsReference(item)}
+                          disabled={picking}
+                          className={`relative size-9 shrink-0 overflow-hidden rounded ${isRef ? 'ring-2 ring-primary' : ''}`}
+                        >
+                          <img src={item.url!} alt="" className="size-full object-cover" />
+                          {isRef && <span className="absolute bottom-0 right-0 bg-primary px-0.5 text-[9px] text-primary-foreground">参考</span>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAsReference(item)}
+                          disabled={picking}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="block truncate text-xs">{item.label || item.name}</span>
+                          {item.caption && <span className="block truncate text-[11px] text-muted-foreground">{item.caption}</span>}
+                        </button>
+                        {item.caption && (
+                          <button
+                            type="button"
+                            onClick={() => toggleCaption(item)}
+                            className={`shrink-0 rounded-md border px-1.5 py-1 text-[11px] ${isPicked ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'}`}
+                          >
+                            {isPicked ? <><CheckIcon className="mr-0.5 inline size-3" />已加</> : <><PlusIcon className="mr-0.5 inline size-3" />文字</>}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })
                 ) : (
-                  <div className="text-xs text-muted-foreground">还没有图片素材，可先到「我的素材」上传，或点上方「上传本地图片」。</div>
+                  <div className="text-xs text-muted-foreground">还没有图片素材，可先到「我的素材」上传，或点上方「上传本地」。</div>
                 )}
               </div>
             </div>
@@ -274,32 +318,29 @@ function OverlayPage() {
           <div className="space-y-3 rounded-2xl border bg-card p-4">
             <div className="flex items-center gap-2">
               <WandSparklesIcon className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">2. 描述你想要的画面</span>
-              {description && (
-                <button type="button" className="ml-auto text-xs text-muted-foreground underline" onClick={() => setDescription('')}>
-                  清空
+              <span className="text-sm font-medium">2. 提示词（已加入 {picked.length} 张的文字）</span>
+              {(description || picked.length || selected) && (
+                <button type="button" className="ml-auto text-xs text-muted-foreground underline" onClick={clearAll}>
+                  全部清空
                 </button>
               )}
             </div>
             <div className="rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-              点上面「我的素材」的图，会自动把它存的文字描述带到下面——图和文字一起生成。可随意修改。
+              下面是已加入的素材文字，按顺序拼成。可自由增删调整——建议：人像特征 → 服装 → 姿势动作 → 场景光线风格。
             </div>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={5}
-              placeholder="例：把这张图里的人换成白色连衣裙，站在樱花树下，阳光柔和，写实摄影风格，半身构图"
-              className="w-full resize-y rounded-xl border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              rows={7}
+              placeholder="点素材的「+文字」自动汇总到这里；也可以直接写描述，例：27岁女性，长卷发，穿白色连衣裙，侧身站立，树林场景，阳光柔和，写实摄影"
+              className="w-full resize-y rounded-xl border bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-[11px] text-muted-foreground">
-              写得越具体越好：主体、衣着/动作、场景、光线、风格、构图。参考图提供画面依据，文字决定改造成什么样。
-            </p>
             <Button className="w-full" size="lg" onClick={() => void generate()} disabled={!isComfy || !description.trim() || isGenerating}>
               {isGenerating ? <LoaderCircleIcon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
-              {isGenerating ? '生成中…' : selected ? '参考图 + 描述生成' : '纯文字生成'}
+              {isGenerating ? '生成中…' : selected ? '文字 + 参考图生成' : '纯文字生成'}
             </Button>
             <p className="text-center text-[11px] text-muted-foreground">
-              不选图就是纯文生图；选一张图就是「参考图 + 描述」生成新图。
+              三张图的意图用文字保留，视觉参考只用一张——当前显卡最稳的方式。
             </p>
           </div>
         </div>
@@ -347,7 +388,7 @@ function OverlayPage() {
             ) : (
               <div className="flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
                 <SparklesIcon className="size-10 opacity-35" />
-                <div>选一张参考图、写下描述，点「生成新图」</div>
+                <div>点素材的「+文字」加描述，选一张参考图，点生成</div>
                 <div className="text-xs">生成只走 B 房间本机显卡，单位网络看不到内容</div>
               </div>
             )}
