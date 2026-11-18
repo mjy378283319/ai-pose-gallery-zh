@@ -797,6 +797,44 @@ export function removeWorkflowImageNode(workflow: Record<string, any>, nodeId: s
   }
 }
 
+// 自动在任何 Omni 工作流里补齐「参考图尺寸统一」：
+// TextEncodeZImageOmni 保留每张参考图的长宽比，多图会产生不同 latent 形状导致
+// KSampler 报 shape invalid。这里在每个 image 输入前插入 1024x1024 的 ImageScale，
+// 无论用户导入的是旧版还是新版 JSON 都能正常生成。
+export function ensureOmniImageScaling(workflow: Record<string, any>): number {
+  let added = 0
+  const nodes = Object.values<any>(workflow)
+  const omni = nodes.find((n) => n?.class_type === 'TextEncodeZImageOmni')
+  if (!omni?.inputs) return 0
+
+  // 找一个未占用的数字节点 ID
+  const used = new Set(Object.keys(workflow))
+  const nextId = () => {
+    let i = 900
+    while (used.has(String(i))) i += 1
+    used.add(String(i))
+    return String(i)
+  }
+
+  for (const key of ['image1', 'image2', 'image3']) {
+    const link = omni.inputs[key]
+    if (!Array.isArray(link) || link.length < 2) continue
+    const upstream = workflow[String(link[0])]
+    if (!upstream) continue
+    // 已经过尺寸统一节点 → 跳过（避免重复缩放）
+    if (/^(ImageScale|ImageScaleBy|ImageScaleToTotalPixels|ImageScaleToMaxDimension|ResizeAndPadImage|FluxKontextImageScale)$/.test(String(upstream.class_type))) continue
+    const scaleId = nextId()
+    workflow[scaleId] = {
+      class_type: 'ImageScale',
+      inputs: { image: [String(link[0]), link[1] ?? 0], upscale_method: 'area', width: 1024, height: 1024, crop: 'center' },
+      _meta: { title: `自动统一尺寸(${key})` },
+    }
+    omni.inputs[key] = [scaleId, 0]
+    added += 1
+  }
+  return added
+}
+
 // ---------------------------------------------------------------------------
 // 网络请求与中文错误
 // ---------------------------------------------------------------------------
@@ -1554,6 +1592,13 @@ async function generateWithComfyUi(params: {
       if (typeof node.inputs.seed === 'number') node.inputs.seed = nextSeed
       if (typeof node.inputs.noise_seed === 'number') node.inputs.noise_seed = nextSeed
     }
+  }
+
+  // 自动补齐 Omni 参考图尺寸统一：兼容用户导入的旧版工作流（缺 ImageScale 节点），
+  // 否则多图 latent 形状不一致会在 KSampler 报 shape invalid（size 260832 等）。
+  if (optionalImages) {
+    const added = ensureOmniImageScaling(workflow)
+    if (added) report({ stage: 'check', message: `已自动统一 ${added} 张参考图尺寸` })
   }
 
   // /prompt is not idempotent: never retry an ambiguous submission.
