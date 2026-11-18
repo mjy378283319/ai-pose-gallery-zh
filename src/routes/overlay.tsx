@@ -149,15 +149,11 @@ function OverlayPage() {
       toast.error('请先把生成器切换为本地 ComfyUI（B 房）')
       return
     }
-    if (!selected) {
-      toast.info('先选一张参考图')
-      return
-    }
     if (!description.trim()) {
       toast.info('写一句你想要的画面描述')
       return
     }
-    // startGeneration 的 overridePrompt 优先于配方拼接提示词，直接用用户写的描述。
+    // 不选图 = 纯文生图；选了图 = 单图参考生成。startGeneration 的 overridePrompt 直接用用户写的描述。
     await startGeneration(description.trim())
   }
 
@@ -193,7 +189,7 @@ function OverlayPage() {
           <div className="space-y-3 rounded-2xl border bg-card p-4">
             <div className="flex items-center gap-2">
               <ImagePlusIcon className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">1. 选一张参考图</span>
+              <span className="text-sm font-medium">1. 选一张参考图（可选）</span>
             </div>
 
             {selected ? (
@@ -278,10 +274,13 @@ function OverlayPage() {
             <p className="text-[11px] text-muted-foreground">
               写得越具体越好：主体、衣着/动作、场景、光线、风格、构图。参考图提供画面依据，文字决定改造成什么样。
             </p>
-            <Button className="w-full" size="lg" onClick={() => void generate()} disabled={!isComfy || !selected || !description.trim() || isGenerating}>
+            <Button className="w-full" size="lg" onClick={() => void generate()} disabled={!isComfy || !description.trim() || isGenerating}>
               {isGenerating ? <LoaderCircleIcon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
-              {isGenerating ? '生成中…' : '生成新图'}
+              {isGenerating ? '生成中…' : selected ? '参考图 + 描述生成' : '纯文字生成'}
             </Button>
+            <p className="text-center text-[11px] text-muted-foreground">
+              不选图就是纯文生图；选一张图就是「参考图 + 描述」生成新图。
+            </p>
           </div>
         </div>
 
