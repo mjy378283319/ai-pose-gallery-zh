@@ -117,6 +117,18 @@ function OverlayPage() {
 
   const pickMine = (item: MineItem) => {
     if (!item.url) return
+    // 关键：素材图自带的文字描述（caption）就是提示词，点选时一并带入，
+    // 让「参考图 + 它的文字」真正一起参与生成。
+    const caption = (item.caption || '').trim()
+    if (caption) {
+      setDescription((prev) => {
+        const current = prev.trim()
+        if (!current || current === caption) return caption
+        if (current.includes(caption)) return current
+        return `${current}\n${caption}`
+      })
+      toast.success('已带入这张素材的文字描述，可直接生成')
+    }
     void useAsReference(item.label || item.name, item.url)
   }
 
@@ -263,6 +275,14 @@ function OverlayPage() {
             <div className="flex items-center gap-2">
               <WandSparklesIcon className="size-4 text-muted-foreground" />
               <span className="text-sm font-medium">2. 描述你想要的画面</span>
+              {description && (
+                <button type="button" className="ml-auto text-xs text-muted-foreground underline" onClick={() => setDescription('')}>
+                  清空
+                </button>
+              )}
+            </div>
+            <div className="rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              点上面「我的素材」的图，会自动把它存的文字描述带到下面——图和文字一起生成。可随意修改。
             </div>
             <textarea
               value={description}
