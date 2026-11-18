@@ -71,7 +71,32 @@ userdata/
 
 直接放图片也能用，网页里显示文件名，点「加入配方」照样能当参考图。
 
-## 三、改 compose 挂卷
+## 三、挂载目录（两种方式二选一）
+
+### A. Unraid 图形界面（不用命令，推荐）
+
+Docker → 添加容器 / 编辑容器 → 点底部 **「添加其他路径、端口、变量、标签或设备」**：
+
+**① 加路径（Path）**
+
+| 列 | 填什么 |
+| --- | --- |
+| 名称 | 我的素材（只是备注，随意） |
+| 容器路径 | `/app/userdata` |
+| 主机路径 | `/mnt/user/appdata/ai-pose-gallery-zh/userdata` |
+| 访问模式 | **读/写（rw）** ← 必须，否则网页不能上传 |
+
+**② 加变量（Variable）**
+
+| 名称（备注，随意） | 键 Key | 值 Value |
+| --- | --- | --- |
+| 素材目录 | `USERDATA_DIR` | `/app/userdata` |
+
+> ⚠️ 界面上的「名称」只是备注，**「键 / Key」才是真正的变量名**，别填反。
+> 主机路径写好后点应用，Unraid 会自动建目录，不用手动建、不用敲命令。
+> **只加这一条路径**：不要加 `/app/data` 映射——那里是内置 1.17 GB 图库，挂了会覆盖报废。
+
+### B. 用 compose（命令行，可选）
 
 在 NAS 的 `docker-compose.yml`（本仓库版本）里已有：
 
@@ -79,7 +104,7 @@ userdata/
     environment:
       USERDATA_DIR: "/app/userdata"
     volumes:
-      - "${USERDATA_DIR:-./userdata}:/app/userdata:ro"
+      - "${USERDATA_DIR:-./userdata}:/app/userdata:rw"
 ```
 
 在 `.env` 里改成你的实际目录：
