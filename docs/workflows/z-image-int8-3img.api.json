@@ -35,25 +35,7 @@
       "image": "portrait_placeholder.png"
     },
     "_meta": {
-      "title": "#1 人像参考 (Portrait) · 由合成台上传"
-    }
-  },
-  "11": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "costume_placeholder.png"
-    },
-    "_meta": {
-      "title": "#2 服装参考 (Costume) · 由合成台上传"
-    }
-  },
-  "12": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "pose_placeholder.png"
-    },
-    "_meta": {
-      "title": "#3 姿势参考 (Pose) · 由合成台上传"
+      "title": "#1 参考图（人像/服装/姿势任选一张）· 由合成台上传"
     }
   },
   "3": {
@@ -71,14 +53,6 @@
       ],
       "image1": [
         "40",
-        0
-      ],
-      "image2": [
-        "41",
-        0
-      ],
-      "image3": [
-        "42",
         0
       ]
     },
@@ -195,39 +169,7 @@
       "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "等比缩放补边(人像)"
-    }
-  },
-  "41": {
-    "class_type": "ResizeAndPadImage",
-    "inputs": {
-      "image": [
-        "11",
-        0
-      ],
-      "target_width": 1024,
-      "target_height": 1024,
-      "padding_color": "black",
-      "interpolation": "lanczos"
-    },
-    "_meta": {
-      "title": "等比缩放补边(服装)"
-    }
-  },
-  "42": {
-    "class_type": "ResizeAndPadImage",
-    "inputs": {
-      "image": [
-        "12",
-        0
-      ],
-      "target_width": 1024,
-      "target_height": 1024,
-      "padding_color": "black",
-      "interpolation": "lanczos"
-    },
-    "_meta": {
-      "title": "等比缩放补边(姿势)"
+      "title": "等比缩放补边(拼图)"
     }
   }
 }

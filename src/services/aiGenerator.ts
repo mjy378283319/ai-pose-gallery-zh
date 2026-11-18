@@ -505,25 +505,7 @@ const zimageInt8ThreeImageWorkflow = {
       "image": "portrait_placeholder.png"
     },
     "_meta": {
-      "title": "#1 人像参考 (Portrait) · 由合成台上传"
-    }
-  },
-  "11": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "costume_placeholder.png"
-    },
-    "_meta": {
-      "title": "#2 服装参考 (Costume) · 由合成台上传"
-    }
-  },
-  "12": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "pose_placeholder.png"
-    },
-    "_meta": {
-      "title": "#3 姿势参考 (Pose) · 由合成台上传"
+      "title": "#1 参考图（人像/服装/姿势任选一张）· 由合成台上传"
     }
   },
   "3": {
@@ -541,14 +523,6 @@ const zimageInt8ThreeImageWorkflow = {
       ],
       "image1": [
         "40",
-        0
-      ],
-      "image2": [
-        "41",
-        0
-      ],
-      "image3": [
-        "42",
         0
       ]
     },
@@ -665,39 +639,7 @@ const zimageInt8ThreeImageWorkflow = {
       "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "等比缩放补边(人像)"
-    }
-  },
-  "41": {
-    "class_type": "ResizeAndPadImage",
-    "inputs": {
-      "image": [
-        "11",
-        0
-      ],
-      "target_width": 1024,
-      "target_height": 1024,
-      "padding_color": "black",
-      "interpolation": "lanczos"
-    },
-    "_meta": {
-      "title": "等比缩放补边(服装)"
-    }
-  },
-  "42": {
-    "class_type": "ResizeAndPadImage",
-    "inputs": {
-      "image": [
-        "12",
-        0
-      ],
-      "target_width": 1024,
-      "target_height": 1024,
-      "padding_color": "black",
-      "interpolation": "lanczos"
-    },
-    "_meta": {
-      "title": "等比缩放补边(姿势)"
+      "title": "等比缩放补边(拼图)"
     }
   }
 } as ComfyWorkflow
@@ -858,9 +800,9 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
   { label: string; workflow: ComfyWorkflow; defaults: ComfyNodeMappings }
 > = {
   zimage_int8_3img: {
-    label: 'Z-Image INT8 三图合一（本机可用 · 推荐）',
+    label: 'Z-Image INT8 单图参考（本机稳定 · 推荐）',
     workflow: zimageInt8ThreeImageWorkflow,
-    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: '11', poseNodeId: '12', stitchedNodeId: 'none' },
+    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
   qwen2509_3img: {
     label: 'Qwen Image Edit 2509 三图合成（人像+服装+姿势）· 推荐',
