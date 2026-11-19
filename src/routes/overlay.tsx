@@ -179,11 +179,16 @@ function OverlayPage() {
       toast.error('请先把生成器切换为本地 ComfyUI（B 房）')
       return
     }
-    if (!description.trim()) {
-      toast.info('先从素材加入文字描述，或自己写一句画面描述')
+    if (!selected) {
+      toast.info('图生图需要一张底稿：点素材缩略图设为参考')
       return
     }
-    // 提示词 = 多张素材的文字汇总（+用户手动补充）；视觉参考只有一张。
+    if (!description.trim()) {
+      toast.info('写一句你想把底稿改成什么样')
+      return
+    }
+    // 图生图：底稿 = 参考图（走 VAEEncode），文字 = 改造指令（标准 CLIPTextEncode）。
+    // 绕开会出棋盘格的 TextEncodeZImageOmni。
     await startGeneration(description.trim())
   }
 
@@ -335,12 +340,12 @@ function OverlayPage() {
               placeholder="点素材的「+文字」自动汇总到这里；也可以直接写描述，例：27岁女性，长卷发，穿白色连衣裙，侧身站立，树林场景，阳光柔和，写实摄影"
               className="w-full resize-y rounded-xl border bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring"
             />
-            <Button className="w-full" size="lg" onClick={() => void generate()} disabled={!isComfy || !description.trim() || isGenerating}>
+            <Button className="w-full" size="lg" onClick={() => void generate()} disabled={!isComfy || !description.trim() || !selected || isGenerating}>
               {isGenerating ? <LoaderCircleIcon className="size-4 animate-spin" /> : <SparklesIcon className="size-4" />}
-              {isGenerating ? '生成中…' : selected ? '文字 + 参考图生成' : '纯文字生成'}
+              {isGenerating ? '重绘中…' : '底稿 + 文字重绘'}
             </Button>
             <p className="text-center text-[11px] text-muted-foreground">
-              三张图的意图用文字保留，视觉参考只用一张——当前显卡最稳的方式。
+              图生图：底稿保留构图/主体，文字决定改成什么样。重绘幅度默认 0.6（可在「API 配置 → 工作流 JSON」里调 denoise）。
             </p>
           </div>
         </div>

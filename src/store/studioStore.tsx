@@ -55,7 +55,7 @@ const TASK_KEY = 'pose_atlas_active_task_v1'
 type ActiveTask = { task?: ComfyTaskHandle; prompt: string; summary: string; unknown?: boolean; snapshot?: GenerationSnapshot }
 const SAFE_MODE_KEY = 'pose_atlas_safe_mode_v1'
 
-const COMFY_CONFIG_VERSION = 3
+const COMFY_CONFIG_VERSION = 4
 
 const shouldEnableProxyByDefault = (provider?: ImageProviderId) =>
   provider === 'qwen' || provider === 'doubao'
@@ -144,7 +144,11 @@ function migrateComfy(
 ): { provider: ApiConfig['providers']['comfyui']; params: ApiConfig['comfyuiParams'] } {
   if ((params.configVersion ?? 1) >= COMFY_CONFIG_VERSION) return { provider, params }
   const nextParams = { ...params, configVersion: COMFY_CONFIG_VERSION }
-  if (params.workflowPreset === 'qwen21_3img' || params.workflowPreset === 'qwen21_2img') {
+  // v4：旧的 Omni 单图/三图预设走 TextEncodeZImageOmni，在 B 房 INT8 上会出棋盘格。
+  // 强制迁移到新的 img2img 重绘预设（标准 VAEEncode 链路，稳定）。
+  const legacyPreset = params.workflowPreset === 'qwen21_3img' || params.workflowPreset === 'qwen21_2img' || params.workflowPreset === 'zimage_int8_3img'
+  const usesOmni = typeof params.workflowJson === 'string' && params.workflowJson.includes('TextEncodeZImageOmni')
+  if (legacyPreset || usesOmni) {
     Object.assign(nextParams, {
       workflowPreset: DEFAULT_COMFY_PRESET,
       workflowJson: JSON.stringify(COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].workflow, null, 2),

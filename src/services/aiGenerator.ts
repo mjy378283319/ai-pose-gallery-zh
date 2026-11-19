@@ -2,6 +2,7 @@ import type { ApiConfig, ExtraReferenceImage, ImageProviderId, RecipeState } fro
 import { applyWorkflowOverrides, getWorkflowImages, validateReferenceCombinations, workflowIdentity, type ComfyObjectInfo } from '@/lib/comfyWorkflowParameters'
 import { poseImagePath, referenceImageUrl } from '@/lib/recipeImages'
 import qwen2509ThreeImageWorkflow from '@/workflows/qwen_image_edit_2509_3img.api.json'
+import zImageInt8Img2ImgWorkflow from '@/workflows/z_image_int8_img2img.api.json'
 
 export interface ProviderModelOption {
   value: string
@@ -644,7 +645,7 @@ const zimageInt8ThreeImageWorkflow = {
   }
 } as ComfyWorkflow
 
-export type ComfyPresetId = 'zimage_int8_3img' | 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img'
+export type ComfyPresetId = 'zimage_int8_img2img' | 'zimage_int8_3img' | 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img'
 
 export interface ComfyNodeMappings {
   promptNodeId: string
@@ -793,14 +794,19 @@ function buildQwen21Workflow(threeImages: boolean): ComfyWorkflow {
   return wf
 }
 
-export const DEFAULT_COMFY_PRESET: ComfyPresetId = 'zimage_int8_3img'
+export const DEFAULT_COMFY_PRESET: ComfyPresetId = 'zimage_int8_img2img'
 
 export const COMFYUI_WORKFLOW_TEMPLATES: Record<
   ComfyPresetId,
   { label: string; workflow: ComfyWorkflow; defaults: ComfyNodeMappings }
 > = {
+  zimage_int8_img2img: {
+    label: 'Z-Image INT8 图生图重绘（底稿+文字 · 本机推荐）',
+    workflow: zImageInt8Img2ImgWorkflow as ComfyWorkflow,
+    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
+  },
   zimage_int8_3img: {
-    label: 'Z-Image INT8 单图参考（本机稳定 · 推荐）',
+    label: 'Z-Image INT8 单图参考Omni（实验·可能棋盘格）',
     workflow: zimageInt8ThreeImageWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
