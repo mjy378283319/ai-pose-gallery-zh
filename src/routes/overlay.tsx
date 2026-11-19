@@ -200,12 +200,17 @@ function OverlayPage() {
         title="素材生图"
         description="多张素材的文字描述拼成提示词，只选一张当视觉参考——三张图的意图靠文字保留，稳定出图。"
         actions={
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/studio">
-              <SparklesIcon className="size-3.5" />
-              完整合成台
-            </Link>
-          </Button>
+          <>
+            <span className="rounded-md border border-emerald-500/50 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+              版本 2026-11-19 · 图生图重绘版
+            </span>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/studio">
+                <SparklesIcon className="size-3.5" />
+                完整合成台
+              </Link>
+            </Button>
+          </>
         }
       />
 
