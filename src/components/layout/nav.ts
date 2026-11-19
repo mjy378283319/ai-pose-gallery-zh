@@ -7,7 +7,6 @@ import {
   PersonStandingIcon,
   ShirtIcon,
   SparklesIcon,
-  WandSparklesIcon,
   UserRoundIcon,
   type LucideIcon,
 } from 'lucide-react'
@@ -30,7 +29,6 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: '图库总览', to: '/', icon: LayoutDashboardIcon },
       { title: 'AI 角色合成台', to: '/studio', icon: SparklesIcon, badge: 'PRO' },
-      { title: '素材生图', to: '/overlay', icon: WandSparklesIcon },
     ],
   },
   {

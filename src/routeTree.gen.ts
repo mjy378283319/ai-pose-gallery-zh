@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CostumesRouteImport } from './routes/costumes'
 import { Route as GuideRouteImport } from './routes/guide'
 import { Route as MineRouteImport } from './routes/mine'
-import { Route as OverlayRouteImport } from './routes/overlay'
 import { Route as PortraitsRouteImport } from './routes/portraits'
 import { Route as PosesRouteImport } from './routes/poses'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -32,11 +31,6 @@ const CostumesRoute = CostumesRouteImport.update({
 const MineRoute = MineRouteImport.update({
   id: '/mine',
   path: '/mine',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OverlayRoute = OverlayRouteImport.update({
-  id: '/overlay',
-  path: '/overlay',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GuideRoute = GuideRouteImport.update({
@@ -70,7 +64,6 @@ export interface FileRoutesByFullPath {
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
   '/mine': typeof MineRoute
-  '/overlay': typeof OverlayRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
   '/settings': typeof SettingsRoute
@@ -81,7 +74,6 @@ export interface FileRoutesByTo {
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
   '/mine': typeof MineRoute
-  '/overlay': typeof OverlayRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
   '/settings': typeof SettingsRoute
@@ -93,7 +85,6 @@ export interface FileRoutesById {
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
   '/mine': typeof MineRoute
-  '/overlay': typeof OverlayRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
   '/settings': typeof SettingsRoute
@@ -106,7 +97,6 @@ export interface FileRouteTypes {
     | '/costumes'
     | '/guide'
     | '/mine'
-    | '/overlay'
     | '/portraits'
     | '/poses'
     | '/settings'
@@ -117,7 +107,6 @@ export interface FileRouteTypes {
     | '/costumes'
     | '/guide'
     | '/mine'
-    | '/overlay'
     | '/portraits'
     | '/poses'
     | '/settings'
@@ -128,7 +117,6 @@ export interface FileRouteTypes {
     | '/costumes'
     | '/guide'
     | '/mine'
-    | '/overlay'
     | '/portraits'
     | '/poses'
     | '/settings'
@@ -140,7 +128,6 @@ export interface RootRouteChildren {
   CostumesRoute: typeof CostumesRoute
   MineRoute: typeof MineRoute
   GuideRoute: typeof GuideRoute
-  OverlayRoute: typeof OverlayRoute
   PortraitsRoute: typeof PortraitsRoute
   PosesRoute: typeof PosesRoute
   SettingsRoute: typeof SettingsRoute
@@ -168,13 +155,6 @@ declare module '@tanstack/react-router' {
       path: '/mine'
       fullPath: '/mine'
       preLoaderRoute: typeof MineRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/overlay': {
-      id: '/overlay'
-      path: '/overlay'
-      fullPath: '/overlay'
-      preLoaderRoute: typeof OverlayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/guide': {
@@ -219,7 +199,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CostumesRoute: CostumesRoute,
   MineRoute: MineRoute,
-  OverlayRoute: OverlayRoute,
   GuideRoute: GuideRoute,
   PortraitsRoute: PortraitsRoute,
   PosesRoute: PosesRoute,

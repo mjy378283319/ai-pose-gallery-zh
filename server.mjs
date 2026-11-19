@@ -319,14 +319,20 @@ async function handleUserdataList(res) {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
     for (const e of textFiles) {
       const full = path.join(TEXT_DIR(), e.name)
+      const label = e.name.replace(/\.txt$/i, '')
       let text = '', st = null
       try { text = (await fs.promises.readFile(full, 'utf8')).trim() } catch {}
       try { st = await fs.promises.stat(full) } catch {}
+      // 文字项可附加一张同名配图（images/<label>.<ext>），前端据此显示缩略图并支持编辑
+      // 文件名经 safeUserName 清洗（空格->下划线），label 也做同样规范化后再比对
+      const normLabel = (s) => s.replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
+      const matchedImg = files.find((f) => normLabel(f.name) === normLabel(label))
       items.push({
         kind: 'text',
         name: e.name,
-        label: e.name.replace(/\.txt$/i, ''),
-        url: null,
+        label,
+        url: matchedImg ? `/userdata/img/${encodeURIComponent(matchedImg.name)}` : null,
+        imageName: matchedImg?.name || null,
         caption: text,
         size: st?.size || 0,
         mtime: st ? st.mtime.toISOString() : '',
@@ -399,6 +405,74 @@ async function handleUserdataTextDelete(req, res, url) {
     sendJson(res, 200, { ok: true, name })
   } catch (err) {
     json(res, 500, `删除失败：${err instanceof Error ? err.message : err}`)
+  }
+}
+
+// 重命名素材：图片项改文件名 + captions key；文字项改 txt 名 + 同名配图名。
+// 用于「我的素材」编辑弹窗里的标题修改。
+async function handleUserdataRename(req, res) {
+  let raw
+  try { raw = await readBody(req, 2 * 1024 * 1024) } catch { return json(res, 413, '请求体过大') }
+  let body
+  try { body = JSON.parse(raw.toString('utf8')) } catch { return json(res, 400, '无效的 JSON') }
+  const kind = body.kind === 'text' ? 'text' : 'image'
+  const from = String(body.from || '').trim()
+  const to = String(body.to || '').trim()
+  if (!from || !to) return json(res, 400, '缺少原名称或新名称')
+
+  try {
+    if (kind === 'image') {
+      const fromName = safeUserName(from)
+      const toName = safeUserName(to)
+      if (!fromName || !toName) return json(res, 400, '图片名无效（需含 jpg/png/gif/webp 后缀）')
+      if (fromName === toName) return sendJson(res, 200, { ok: true, kind, name: toName })
+      // 源可能在 images/ 或根目录
+      const src = [safePath(USERDATA_DIR, path.join('images', fromName)), safePath(USERDATA_DIR, fromName)].find((c) => c && fs.existsSync(c))
+      if (!src) return json(res, 404, '原图片不存在')
+      const dst = path.join(path.dirname(src), toName)
+      if (fs.existsSync(dst)) return json(res, 409, '新文件名已存在')
+      await fs.promises.rename(src, dst)
+      // 迁移 caption key
+      await new Promise((resolve) => updateCaptions({}, () => resolve()))
+      let captions = {}
+      try { captions = JSON.parse(await fs.promises.readFile(path.join(USERDATA_DIR, 'captions.json'), 'utf8')) || {} } catch {}
+      if (Object.hasOwn(captions, fromName)) {
+        captions[toName] = captions[fromName]
+        delete captions[fromName]
+        await fs.promises.writeFile(path.join(USERDATA_DIR, 'captions.json'), JSON.stringify(captions, null, 2) + '\n', 'utf8')
+      }
+      return sendJson(res, 200, { ok: true, kind, name: toName, url: `/userdata/img/${encodeURIComponent(toName)}` })
+    }
+
+    // 文字项：改 txt 文件名 + 关联配图（images/<label>.<ext>）
+    const fromName = safeTextName(from)
+    const toName = safeTextName(to)
+    if (!fromName || !toName) return json(res, 400, '标题无效')
+    if (fromName === toName) return sendJson(res, 200, { ok: true, kind, name: toName, label: toName.replace(/\.txt$/i, '') })
+    const srcTxt = path.join(TEXT_DIR(), fromName)
+    const dstTxt = path.join(TEXT_DIR(), toName)
+    if (!fs.existsSync(srcTxt)) return json(res, 404, '原文字不存在')
+    if (fs.existsSync(dstTxt)) return json(res, 409, '新标题已存在')
+    await fs.promises.rename(srcTxt, dstTxt)
+    // 关联配图一起改名
+    const fromLabel = fromName.replace(/\.txt$/i, '')
+    const toLabel = toName.replace(/\.txt$/i, '')
+    const imgDir = path.join(USERDATA_DIR, 'images')
+    let attached = null
+    for (const f of await fs.promises.readdir(imgDir).catch(() => [])) {
+      if (f.replace(/\.[^.]+$/, '') === fromLabel) {
+        const newImg = toLabel + path.extname(f)
+        await fs.promises.rename(path.join(imgDir, f), path.join(imgDir, newImg)).catch(() => {})
+        attached = newImg
+        break
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true, kind, name: toName, label: toLabel,
+      url: attached ? `/userdata/img/${encodeURIComponent(attached)}` : null,
+    })
+  } catch (err) {
+    json(res, 500, `重命名失败（挂载是否只读？）：${err instanceof Error ? err.message : err}`)
   }
 }
 
@@ -580,6 +654,10 @@ const server = http.createServer((req, res) => {
   if (p === '/userdata/caption') {
     if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
     return void handleUserdataCaption(req, res)
+  }
+  if (p === '/userdata/rename') {
+    if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
+    return void handleUserdataRename(req, res)
   }
   if (p === '/userdata/text') {
     if (req.method === 'POST') return void handleUserdataTextSave(req, res)
