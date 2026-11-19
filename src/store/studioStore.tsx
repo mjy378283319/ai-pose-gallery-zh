@@ -55,13 +55,14 @@ const TASK_KEY = 'pose_atlas_active_task_v1'
 type ActiveTask = { task?: ComfyTaskHandle; prompt: string; summary: string; unknown?: boolean; snapshot?: GenerationSnapshot }
 const SAFE_MODE_KEY = 'pose_atlas_safe_mode_v1'
 
-const COMFY_CONFIG_VERSION = 5
+const COMFY_CONFIG_VERSION = 6
 
 const shouldEnableProxyByDefault = (provider?: ImageProviderId) =>
   provider === 'qwen' || provider === 'doubao'
 
 const DEFAULT_API_CONFIG: ApiConfig = {
   activeProvider: 'gemini',
+  imageCount: 1,
   imagePassMode: 'url',
   useProxy: false,
   stylePreset: 'realistic',
@@ -142,20 +143,29 @@ function migrateComfy(
   provider: ApiConfig['providers']['comfyui'],
   params: ApiConfig['comfyuiParams']
 ): { provider: ApiConfig['providers']['comfyui']; params: ApiConfig['comfyuiParams'] } {
-  if ((params.configVersion ?? 1) >= COMFY_CONFIG_VERSION) return { provider, params }
+  const storedVer = params.configVersion ?? 1
+  if (storedVer >= COMFY_CONFIG_VERSION) return { provider, params }
   const nextParams = { ...params, configVersion: COMFY_CONFIG_VERSION }
   // v4：旧的 Omni 单图/三图预设走 TextEncodeZImageOmni，在 B 房 INT8 上会出棋盘格。
   // v5：img2img 预设强制要求底稿，合成台无法纯提示词生成；统一迁移回纯文生图默认。
-  // 强制迁移到新的 t2i 预设（EmptyLatentImage，纯提示词直接生成）。
+  // v6：统一默认参数为 832×1216 / Steps 8 / CFG 1 / res_multistep / simple / shift 3 / denoise 1，
+  //     需要把浏览器里缓存的旧工作流 JSON 快照强制刷新成内置最新模板，否则看不到新参数。
+  // 用户若手动导入了自定义工作流（custom），保留其 JSON 不覆盖。
+  const isCustom = params.workflowPreset === 'custom'
   const legacyPreset = params.workflowPreset === 'qwen21_3img' || params.workflowPreset === 'qwen21_2img'
     || params.workflowPreset === 'zimage_int8_3img' || params.workflowPreset === 'zimage_int8_img2img'
   const usesOmni = typeof params.workflowJson === 'string' && params.workflowJson.includes('TextEncodeZImageOmni')
   const usesImg2Img = typeof params.workflowJson === 'string' && params.workflowJson.includes('VAEEncode')
-  if (legacyPreset || usesOmni || usesImg2Img) {
+  const forceRefresh = storedVer < 6 || legacyPreset || usesOmni || usesImg2Img
+  if (forceRefresh && !isCustom) {
+    const presetId = (params.workflowPreset in COMFYUI_WORKFLOW_TEMPLATES
+      ? params.workflowPreset : DEFAULT_COMFY_PRESET) as keyof typeof COMFYUI_WORKFLOW_TEMPLATES
+    const tpl = COMFYUI_WORKFLOW_TEMPLATES[presetId]
     Object.assign(nextParams, {
-      workflowPreset: DEFAULT_COMFY_PRESET,
-      workflowJson: JSON.stringify(COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].workflow, null, 2),
-      ...COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].defaults,
+      workflowPreset: presetId,
+      workflowJson: JSON.stringify(tpl.workflow, null, 2),
+      ...tpl.defaults,
+      parameterOverrides: undefined,
     })
   }
   const nextProvider = { ...provider }
@@ -182,11 +192,13 @@ function mergeStoredConfig(raw: unknown): ApiConfig {
     storedVer < 3
       ? shouldEnableProxyByDefault(activeProvider)
       : (obj.useProxy ?? shouldEnableProxyByDefault(activeProvider))
+  const storedCount = Number(obj.imageCount)
   return {
     ...DEFAULT_API_CONFIG,
     ...obj,
     activeProvider,
     useProxy,
+    imageCount: Number.isFinite(storedCount) ? Math.min(4, Math.max(1, Math.trunc(storedCount))) : DEFAULT_API_CONFIG.imageCount,
     providers: {
       gemini: { ...DEFAULT_API_CONFIG.providers.gemini, ...obj.providers?.gemini },
       gpt: { ...DEFAULT_API_CONFIG.providers.gpt, ...obj.providers?.gpt },
@@ -631,7 +643,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     activeTaskRef.current = value
     setActiveTask(value)
   }
-  const completeGeneration = async (result: {imageUrl: string; modelUsed: string; providerUsed: ImageProviderId}, record: ActiveTask, signal: AbortSignal) => {
+  const completeGeneration = async (result: {imageUrl: string; modelUsed: string; providerUsed: ImageProviderId}, record: ActiveTask, signal: AbortSignal, options?: { silent?: boolean }) => {
     signal.throwIfAborted()
     const imageUrl = await durableImage(result.imageUrl)
     signal.throwIfAborted()
@@ -643,7 +655,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     })
     signal.throwIfAborted()
     await saveActive(null)
-    toast.success('角色图已完成并保存')
+    if (!options?.silent) toast.success('角色图已完成并保存')
   }
   const resumeGeneration = async () => {
     const record = activeTaskRef.current
@@ -687,7 +699,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     const recipeSnapshot = recipe
     const configSnapshot = apiConfig
     const finalPrompt = overridePrompt ?? customPrompt ?? buildRecipePrompt(recipeSnapshot, configSnapshot.stylePreset, configSnapshot.activeProvider === 'comfyui' && recipeSnapshot.workflowImagesIdentity === workflowIdentity(configSnapshot.comfyuiParams.workflowJson) ? Object.values(recipeSnapshot.workflowImages || {}) : [])
-    let record: ActiveTask = { prompt: finalPrompt, summary: [recipeSnapshot.portrait?.发型名称, recipeSnapshot.costume?.服装名称, recipeSnapshot.pose?.姿势名称].filter(Boolean).join(' + ') || '自定义合成' }
+    // 生成数量完全由「提交到 ComfyUI 队列的任务数」决定；每个任务内部 batch_size 恒为 1
+    // （aiGenerator 提交前会强制锁定），避免显存峰值超过 8G、也避免数量被 batch_size 放大。
+    // 批量时一次性把 N 个任务全部提交进队列，由 ComfyUI 队列自行调度执行。
+    const requestedCount = Number(configSnapshot.imageCount)
+    const total = Number.isFinite(requestedCount) ? Math.min(4, Math.max(1, Math.trunc(requestedCount))) : 1
     isGeneratingRef.current = true
     setIsGenerating(true)
     setGeneratingModel(configSnapshot.activeProvider)
@@ -696,26 +712,55 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController()
     trackingRef.current = controller
     try {
-      record.snapshot = await snapshotGeneration(recipeSnapshot, configSnapshot, finalPrompt)
-      controller.signal.throwIfAborted()
       if (configSnapshot.activeProvider === 'comfyui') await idbWrite(TASK_KEY, null)
-      const result = await generateCharacterImage({ recipe: recipeSnapshot, prompt: finalPrompt, config: configSnapshot, onProgress: setGenerationProgress, signal: controller.signal,
-        onSubmitting: async (prepared) => {
-          controller.signal.throwIfAborted()
-          if (record.snapshot && prepared) record.snapshot.submittedWorkflowJson = JSON.stringify(prepared.workflow)
-          await saveActive({ ...record, unknown: true })
-          controller.signal.throwIfAborted()
-        },
-        onSubmitted: async (task) => {
-          if (controller.signal.aborted) return
-          record = { ...record, task }
-          activeTaskRef.current = record
-          setActiveTask(record)
-          if (!controller.signal.aborted) await saveActive(record)
-        },
+      const makeRecord = (): ActiveTask => ({
+        prompt: finalPrompt,
+        summary: [recipeSnapshot.portrait?.发型名称, recipeSnapshot.costume?.服装名称, recipeSnapshot.pose?.姿势名称].filter(Boolean).join(' + ') || '自定义合成',
       })
-      controller.signal.throwIfAborted()
-      await completeGeneration(result, record, controller.signal)
+
+      if (total === 1) {
+        // 单张：保留完整的断点续传跟踪链路。
+        let record = makeRecord()
+        record.snapshot = await snapshotGeneration(recipeSnapshot, configSnapshot, finalPrompt)
+        controller.signal.throwIfAborted()
+        const result = await generateCharacterImage({
+          recipe: recipeSnapshot, prompt: finalPrompt, config: configSnapshot, signal: controller.signal,
+          onProgress: setGenerationProgress,
+          onSubmitting: async (prepared) => {
+            controller.signal.throwIfAborted()
+            if (record.snapshot && prepared) record.snapshot.submittedWorkflowJson = JSON.stringify(prepared.workflow)
+            await saveActive({ ...record, unknown: true })
+            controller.signal.throwIfAborted()
+          },
+          onSubmitted: async (task) => {
+            if (controller.signal.aborted) return
+            record = { ...record, task }
+            activeTaskRef.current = record
+            setActiveTask(record)
+            if (!controller.signal.aborted) await saveActive(record)
+          },
+        })
+        controller.signal.throwIfAborted()
+        await completeGeneration(result, record, controller.signal)
+      } else {
+        // 批量：N 个任务同时提交进 ComfyUI 队列（各自独立种子、batch_size=1）。
+        // 不做单任务断点跟踪（activeTask 只支持一个），避免多任务互相覆盖；历史逐张写入。
+        const sharedSnapshot = await snapshotGeneration(recipeSnapshot, configSnapshot, finalPrompt)
+        controller.signal.throwIfAborted()
+        const jobs = Array.from({ length: total }, (_, index) => {
+          const record = makeRecord()
+          record.snapshot = sharedSnapshot
+          return generateCharacterImage({
+            recipe: recipeSnapshot, prompt: finalPrompt, config: configSnapshot, signal: controller.signal,
+            onProgress: (p) => setGenerationProgress({ ...p, message: `队列批次 ${index + 1}/${total} · ${p.message}` }),
+          }).then(async (result) => {
+            await completeGeneration(result, record, controller.signal, { silent: true })
+            return result
+          })
+        })
+        await Promise.all(jobs)
+        toast.success(`已完成 ${total} 张角色图并保存`)
+      }
     } catch (e) {
       if (e instanceof ComfySubmissionRejectedError || (e instanceof ComfyTaskError && e.reason === 'failed')) {
         try { await saveActive(null) } catch { toast.error('任务失败记录未能清除，请停止跟踪后重试') }

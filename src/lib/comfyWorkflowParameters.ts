@@ -39,6 +39,22 @@ export function workflowIdentity(json: string): string {
 
 const scalar = (value: unknown): value is WorkflowScalar => typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))
 
+/** 常见参数的中文说明；当工作流 JSON 未提供 description 时作为兜底。 */
+const PARAM_HELP: Record<string, string> = {
+  width: '生成图片宽度（像素）。越大越清晰但越占显存、越慢。当前推荐 832。',
+  height: '生成图片高度（像素）。竖版人像推荐 1216。宽高需为 8 的倍数。',
+  batch_size: '一次生成的张数。显存有限时保持 1；想一次出多张请用下方「生成数量」。',
+  steps: '采样步数。Z-Image Turbo 蒸馏模型 8 步即可，调高不会明显变好、只会更慢。',
+  cfg: '提示词遵循强度。Z-Image Turbo 固定用 1，调高会让画面崩坏。',
+  sampler_name: '采样器算法，决定去噪方式。Z-Image Turbo 推荐 res_multistep。一般不要改。',
+  scheduler: '调度器，控制每步噪声衰减节奏。Z-Image Turbo 推荐 simple。一般不要改。',
+  denoise: '重绘幅度：0=完全保留底稿，1=完全按文字重画。图生图建议 0.4~0.6，纯文生图固定 1。',
+  shift: 'AuraFlow shift，影响噪声分布与细节。Z-Image 推荐 3，改动会明显改变画面风格。',
+  seed: '随机种子。相同种子+相同参数=相同结果；开启「每次随机种子」后每轮自动变化。',
+  cfg_scale: '同 CFG，提示词遵循强度。',
+  strength: '同 denoise，控制参考图被保留的程度。',
+}
+
 export function getWorkflowControls(json: string, schemas: ComfyObjectInfo, excluded = new Set<string>()): WorkflowControl[] {
   const workflow = parseParameterWorkflow(json)
   if (!workflow) return []
@@ -78,7 +94,7 @@ export function getWorkflowControls(json: string, schemas: ComfyObjectInfo, excl
       }
       controls.push({ key: `${nodeId}.${input}`, nodeId, input, value, type, options, optionLabels,
         label: typeof annotation?.label === 'string' ? annotation.label : `${node._meta?.title || node.class_type} · ${input}`,
-        description: typeof annotation?.description === 'string' ? annotation.description : undefined, group: typeof annotation?.group === 'string' ? annotation.group : undefined, recommended: Boolean(annotation),
+        description: typeof annotation?.description === 'string' ? annotation.description : PARAM_HELP[input], group: typeof annotation?.group === 'string' ? annotation.group : undefined, recommended: Boolean(annotation),
         min: typeof settings.min === 'number' ? settings.min : undefined,
         max: typeof settings.max === 'number' ? settings.max : undefined,
         step: typeof settings.step === 'number' ? settings.step : kind === 'INT' ? 1 : undefined,

@@ -87,7 +87,7 @@
         0
       ],
       "seed": 729703840979498,
-      "steps": 10,
+      "steps": 8,
       "cfg": 1.0,
       "sampler_name": "res_multistep",
       "scheduler": "simple",
@@ -106,7 +106,7 @@
       ]
     },
     "_meta": {
-      "title": "KSampler 10步 / CFG 1 / denoise 1.0（纯文生图）"
+      "title": "KSampler 8步 / CFG 1 / denoise 1.0（纯文生图）"
     }
   },
   "7": {

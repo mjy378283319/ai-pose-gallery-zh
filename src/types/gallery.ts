@@ -152,6 +152,8 @@ export interface DoubaoParams {
 
 export interface ApiConfig {
   activeProvider: ImageProviderId
+  /** 一次点击「生成角色图」连续生成的张数（1/2/4），每张独立 seed、batch_size 仍为 1 */
+  imageCount: number
   imagePassMode: ImagePassMode
   useProxy: boolean
   stylePreset: string

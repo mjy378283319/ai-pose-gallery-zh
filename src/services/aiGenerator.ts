@@ -548,12 +548,12 @@ const zimageInt8ThreeImageWorkflow = {
   "5": {
     "class_type": "EmptySD3LatentImage",
     "inputs": {
-      "width": 1024,
-      "height": 1024,
+      "width": 832,
+      "height": 1216,
       "batch_size": 1
     },
     "_meta": {
-      "title": "输出尺寸 1024×1024"
+      "title": "输出尺寸 832×1216"
     }
   },
   "6": {
@@ -635,13 +635,13 @@ const zimageInt8ThreeImageWorkflow = {
         "10",
         0
       ],
-      "target_width": 1024,
-      "target_height": 1024,
+      "target_width": 832,
+      "target_height": 1216,
       "padding_color": "black",
       "interpolation": "lanczos"
     },
     "_meta": {
-      "title": "等比缩放补边(拼图)"
+      "title": "等比缩放补边到 832×1216"
     }
   }
 } as ComfyWorkflow
@@ -802,12 +802,12 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
   { label: string; workflow: ComfyWorkflow; defaults: ComfyNodeMappings }
 > = {
   zimage_int8_t2i: {
-    label: 'Z-Image INT8 纯文生图（提示词直接生成 · 推荐）',
+    label: '① 提示词直接生图（Z-Image · 默认推荐）',
     workflow: zImageInt8T2IWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: 'none', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
   zimage_int8_img2img: {
-    label: 'Z-Image INT8 图生图重绘（需底稿 · 可选）',
+    label: '② 参考图 + 文字生图（Z-Image 底稿重绘）',
     workflow: zImageInt8Img2ImgWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
@@ -1345,7 +1345,7 @@ async function uploadImageToComfy(
     throw new Error(`读取参考图失败：${src.slice(0, 80)}`)
   }
   const form = new FormData()
-  form.append('image', dataUrlToBlob(dataUrl), `${filenamePrefix}_${Date.now()}.png`)
+  form.append('image', dataUrlToBlob(dataUrl), `${filenamePrefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}.png`)
   form.append('subfolder', 'pose_studio')
   form.append('overwrite', 'true')
 
@@ -1796,6 +1796,13 @@ async function generateWithComfyUi(params: {
   if (optionalImages) {
     const added = ensureOmniImageScaling(workflow)
     if (added) report({ stage: 'check', message: `已自动统一 ${added} 张参考图尺寸` })
+  }
+
+  // 强制把 batch_size 锁定为 1：生成数量选项完全靠"队列里提交几次"来调度，
+  // 不允许任何 latent 节点（含自定义工作流 / 参数覆盖）一次出多张。
+  // 8G 显存一次只装得下一张；要出多张由 studioStore 循环提交 N 个独立任务实现。
+  for (const node of Object.values<any>(workflow)) {
+    if (node?.inputs && typeof node.inputs.batch_size === 'number') node.inputs.batch_size = 1
   }
 
   // /prompt is not idempotent: never retry an ambiguous submission.

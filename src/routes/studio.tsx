@@ -788,6 +788,18 @@ function StudioPage() {
               </Button>
             }
           >
+            <details className="col-span-full rounded-xl border bg-muted/30 px-3 py-2 text-xs leading-relaxed">
+              <summary className="cursor-pointer font-medium">📖 这里都是干什么用的？点开看说明</summary>
+              <div className="mt-2 space-y-1.5 text-muted-foreground">
+                <p><strong className="text-foreground">接口协议</strong>：用谁来生成图片。本机 ComfyUI（B 房显卡，免费、走 localhost 回环、单位网络看不到内容）；其他是在线 API（要 Key、按量付费）。你目前用的是本机 ComfyUI。</p>
+                <p><strong className="text-foreground">工作流模板</strong>：决定"怎么生成"。① 提示词直接生图＝只写文字就出图（默认）；② 参考图 + 文字生图＝先放一张底稿图，再写文字把它重绘成新图。想三图融合（人像+服装+姿势）在网页端选 Qwen 2.1 模板，或继续用已验证的独立脚本。</p>
+                <p><strong className="text-foreground">画风预设</strong>：自动往提示词里加"写实/动漫/油画"等风格词，省得每次手打。</p>
+                <p><strong className="text-foreground">人像/服装/姿势/提示词节点</strong>：把界面上的图和文字"接到"工作流里对应的位置。用内置模板时已自动配好，不用改；只有导入自己的工作流才需要手动对。</p>
+                <p><strong className="text-foreground">高级参数（右上角按钮）</strong>：展开后是针对所选协议的额外设置（如超时、随机种子、在线 API 的画幅质量等）。一般保持默认即可。</p>
+                <p><strong className="text-foreground">工作流高级参数</strong>：直接改工作流里每个节点的数值——宽度、高度、Steps、CFG、采样器、Denoise、seed 等，每项都有中文说明。改完只对当前生效，"恢复默认"可还原。当前推荐值：<strong className="text-foreground">832×1216 / Steps 8 / CFG 1 / res_multistep / simple / shift 3 / Denoise 1</strong>。</p>
+              </div>
+            </details>
+
             <Field label="接口协议">
               <Select
                 value={activeProvider}
@@ -1439,6 +1451,29 @@ function StudioPage() {
               rows={5}
               className="bg-background font-mono text-xs leading-relaxed"
             />
+
+            <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3 py-2.5">
+              <div className="min-w-0">
+                <div className="text-xs font-medium">生成数量</div>
+                <div className="text-[11px] text-muted-foreground">一次生成几张（每张独立种子，逐张生成）</div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                {[1, 2, 4].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => updateApiConfig({ imageCount: n })}
+                    className={`h-8 min-w-9 rounded-md border px-2 text-xs font-medium transition-colors ${
+                      (apiConfig.imageCount || 1) === n
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-accent'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <Button
               onClick={handleGenerate}

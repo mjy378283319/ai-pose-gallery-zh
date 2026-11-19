@@ -60,7 +60,9 @@ export function WorkflowParameters({ onPreview, onUploadingChange }: { onPreview
   for (const image of images) excluded.add(`${image.nodeId}.image`)
   for (const nodeId of [cp.portraitNodeId, cp.costumeNodeId, cp.poseNodeId, cp.stitchedNodeId]) excluded.add(`${nodeId}.image`)
   for (const input of ['prompt', 'text', 'string', 'positive']) excluded.add(`${cp.promptNodeId}.${input}`)
-  const controls = getWorkflowControls(cp.workflowJson, schemas || {}, excluded)
+  // batch_size 由「生成数量」选项统一调度，恒为 1，不在这里暴露编辑，避免数量被双重放大。
+  const allControls = getWorkflowControls(cp.workflowJson, schemas || {}, excluded)
+  const controls = allControls.filter((control) => control.input !== 'batch_size')
   const saved = cp.parameterOverrides?.workflowId === identity ? cp.parameterOverrides.values || {} : {}
   const workflowImages = recipe.workflowImagesIdentity === identity ? recipe.workflowImages || {} : {}
   const change = (control: WorkflowControl, value?: WorkflowScalar) => {
@@ -93,7 +95,7 @@ export function WorkflowParameters({ onPreview, onUploadingChange }: { onPreview
   }
   return <div className="col-span-full min-w-0 space-y-4 break-words rounded-xl border p-3">
     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">工作流高级参数</h3><Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={!Object.keys(saved).length} onClick={() => updateComfyUiParams({ parameterOverrides: { workflowId: identity, values: {} } })}>全部恢复默认</Button></div>
-    <p className="text-xs text-muted-foreground">按当前 ComfyUI 节点定义显示；未修改的参数沿用导入 API。</p>
+    <p className="text-xs text-muted-foreground">这里可以直接改工作流里每个节点的数值，每项下方有中文说明。常用：宽度 832、高度 1216、Steps 8、CFG 1、采样器 res_multistep、调度器 simple、AuraFlow shift 3、Denoise 1（纯文生图）/ 0.4~0.6（图生图）。未修改的参数沿用导入值；改完点「恢复默认」可还原。</p>
     {images.length > 0 && <div className="grid gap-4 sm:grid-cols-2">{images.map((image) => {
       const selected = workflowImages[image.nodeId]
       const inputId = `workflow-image-${image.nodeId}`
