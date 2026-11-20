@@ -55,7 +55,7 @@ const TASK_KEY = 'pose_atlas_active_task_v1'
 type ActiveTask = { task?: ComfyTaskHandle; prompt: string; summary: string; unknown?: boolean; snapshot?: GenerationSnapshot }
 const SAFE_MODE_KEY = 'pose_atlas_safe_mode_v1'
 
-const COMFY_CONFIG_VERSION = 7
+const COMFY_CONFIG_VERSION = 8
 
 const shouldEnableProxyByDefault = (provider?: ImageProviderId) =>
   provider === 'qwen' || provider === 'doubao'
@@ -153,11 +153,12 @@ function migrateComfy(
   // v6：统一默认参数为 832×1216 / Steps 8 / CFG 1 / res_multistep / simple / shift 3 / denoise 1。
   // v7：工作流模板精简为 3 个（提示词生图 / 参考图生图 / Qwen2.1 三图融合），
   //     删除了所有用不了的旧模板（Omni 棋盘格、Qwen2509 需20G、旧 Qwen2.1 模型名错误）。
-  //     强制把浏览器缓存的旧工作流 JSON 快照刷新成新的内置模板，否则下拉里还显示已删项、或用着坏模板。
+  // v8：新增两图融合模板（qwen21_2img，人像+姿势，服装靠文字描述，实测最稳）。
+  //     强制刷新浏览器缓存的旧工作流 JSON 快照到内置模板，否则下拉里看不到新模板。
   // 用户若手动导入了自定义工作流（custom），保留其 JSON 不覆盖。
   const isCustom = params.workflowPreset === 'custom'
-  if (storedVer < 7 && !isCustom) {
-    // 已删除的旧预设 ID 一律迁回默认；仍存在的 ID（t2i/img2img/qwen21_3img）刷新为新模板内容。
+  if (storedVer < 8 && !isCustom) {
+    // 已删除的旧预设 ID 一律迁回默认；仍存在的 ID 刷新为新模板内容。
     const presetId = (params.workflowPreset in COMFYUI_WORKFLOW_TEMPLATES
       ? params.workflowPreset : DEFAULT_COMFY_PRESET) as keyof typeof COMFYUI_WORKFLOW_TEMPLATES
     const tpl = COMFYUI_WORKFLOW_TEMPLATES[presetId]

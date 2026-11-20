@@ -1,0 +1,105 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": { "title": "Qwen-Image 2.1 Turbo INT8 主模型（已下载）" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "_meta": { "title": "Qwen3-VL 8B INT8 文本编码器（已下载）" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "qwen_image_2.1_vae_bf16.safetensors" },
+    "_meta": { "title": "Qwen-Image 2.1 VAE（已下载）" }
+  },
+  "4": {
+    "class_type": "QwenImage21Cache",
+    "inputs": { "model": ["1", 0], "device": "auto", "dtype": "default" },
+    "_meta": { "title": "Qwen 2.1 显存优化缓存（lowvram 必需）" }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "portrait_placeholder.png" },
+    "_meta": { "title": "图1 人像画布（锁脸/身份 · 由合成台上传）" }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "pose_placeholder.png" },
+    "_meta": { "title": "图2 姿势参考（锁动作 · 由合成台上传）" }
+  },
+  "5": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": ["2", 0],
+      "prompt": "{{prompt}}",
+      "negative_prompt": "",
+      "resolution": 1024,
+      "vae": ["3", 0],
+      "images": {
+        "image_1": ["10", 0],
+        "image_2": ["12", 0]
+      }
+    },
+    "_meta": { "title": "两图融合提示词编码（图1锁脸+图2锁姿势 · 服装靠文字点名 · 已实测）" }
+  },
+  "6": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 832, "height": 1216, "batch_size": 1 },
+    "_meta": { "title": "输出尺寸 832×1216" }
+  },
+  "7": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": ["4", 0],
+      "positive": ["5", 0],
+      "negative": ["5", 1],
+      "cfg": 1.0
+    },
+    "_meta": { "title": "CFG 引导（CFG 固定 1）" }
+  },
+  "8": {
+    "class_type": "ManualSigmas",
+    "inputs": { "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0" },
+    "_meta": { "title": "Turbo 8 步官方 sigmas" }
+  },
+  "9": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "euler" },
+    "_meta": { "title": "采样器 euler（Qwen 2.1 专用）" }
+  },
+  "13": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 424242 },
+    "_meta": { "title": "随机噪声种子" }
+  },
+  "14": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["13", 0],
+      "guider": ["7", 0],
+      "sampler": ["9", 0],
+      "sigmas": ["8", 0],
+      "latent_image": ["5", 2]
+    },
+    "_meta": { "title": "高级采样器（起点=参考图 latent，官方 image_edit 接法）" }
+  },
+  "15": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["14", 0], "vae": ["3", 0] },
+    "_meta": { "title": "VAE 解码" }
+  },
+  "16": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["15", 0], "filename_prefix": "Qwen21_2img" },
+    "_meta": { "title": "保存两图融合结果" }
+  }
+}

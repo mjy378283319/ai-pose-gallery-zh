@@ -2,6 +2,7 @@ import type { ApiConfig, ExtraReferenceImage, ImageProviderId, RecipeState } fro
 import { applyWorkflowOverrides, getWorkflowImages, validateReferenceCombinations, workflowIdentity, type ComfyObjectInfo } from '@/lib/comfyWorkflowParameters'
 import { poseImagePath, referenceImageUrl } from '@/lib/recipeImages'
 import qwen21ThreeImageWorkflow from '@/workflows/qwen_image_21_3img.api.json'
+import qwen21TwoImageWorkflow from '@/workflows/qwen_image_21_2img.api.json'
 import zImageUpscaleFdWorkflow from '@/workflows/z_image_upscale_facedetailer.api.json'
 import zImageInt8Img2ImgWorkflow from '@/workflows/z_image_int8_img2img.api.json'
 import zImageInt8T2IWorkflow from '@/workflows/z_image_int8_t2i.api.json'
@@ -150,6 +151,71 @@ export const STYLE_PRESETS: Record<string, { label: string; prompt: string }> = 
     prompt: '标准角色设定集全身立绘，纯白干净无杂物背景，均匀漫反射布光，清晰展示全身服装结构与配饰细节。',
   },
 }
+
+/**
+ * 穿搭写真提示词预设：一键填入提示词框。
+ * 实测（2026-11-20）Qwen-Image 2.1 还原服装几乎全靠"逐项点名的文字"，看不懂平铺服装图，
+ * 所以把常用服装按"具体配饰逐项列出"的句式固化成模板，用户填入后按需微调即可稳定还原。
+ * 方括号占位符 [ ] 里的内容请按实际想要的款式替换。
+ */
+export const OUTFIT_PROMPT_PRESETS: Array<{ id: string; label: string; prompt: string }> = [
+  {
+    id: 'miko',
+    label: '巫女/狐耳（实测还原成功）',
+    prompt:
+      '一张真实年轻女性的全身照片，坐姿，单手撑地、双腿向前斜伸，正面，长黑发。\n' +
+      '她穿整套日式巫女风格服装：白色交领短上衣，红色腰带，红色百褶短裙，\n' +
+      '带红色包边和樱花印花的宽大和风袖子，袖子和腰间垂挂多个红色流苏和金色小铃铛，\n' +
+      '白色过膝长筒袜（袜口有红色蝴蝶结流苏），黑色厚底木屐凉鞋，\n' +
+      '头上戴白色红内衬的狐狸耳朵发箍。\n' +
+      '写实摄影，纯白摄影棚背景，高级色调，光影自然，人物比例协调，手部与五官自然。\n' +
+      '画面中没有任何文字、标志或水印。',
+  },
+  {
+    id: 'loli',
+    label: '洛丽塔/蓬蓬裙',
+    prompt:
+      '一张真实年轻女性的全身照片，站姿，长发，面向镜头。\n' +
+      '她穿一套精致的洛丽塔洋装：[主色]连衣裙，荷叶边与蕾丝花边层层叠叠，\n' +
+      '泡泡袖，胸前蝴蝶结，梯形裙撑撑起的蓬蓬裙摆，裙摆印有[碎花/格纹]图案，\n' +
+      '搭配蕾丝长袜、玛丽珍皮鞋、同色系发带与颈链。\n' +
+      '写实摄影，纯白摄影棚背景，高级色调，光影自然，人物比例协调，手部与五官自然。\n' +
+      '画面中没有任何文字、标志或水印。',
+  },
+  {
+    id: 'hanfu',
+    label: '汉服/古风',
+    prompt:
+      '一张真实年轻女性的全身照片，站姿，长发挽起，面向镜头。\n' +
+      '她穿一套[齐胸襦裙/明制]汉服：[上襦颜色]上襦，[裙色]长裙，\n' +
+      '大袖衫配刺绣披帛，腰间系宫绦与玉佩，发间戴[发簪/步摇]与流苏耳饰，\n' +
+      '绣花鞋。衣料垂坠有质感，纹样清晰。\n' +
+      '写实摄影，纯白摄影棚背景，高级色调，光影自然，人物比例协调，手部与五官自然。\n' +
+      '画面中没有任何文字、标志或水印。',
+  },
+  {
+    id: 'school',
+    label: 'JK制服/学院风',
+    prompt:
+      '一张真实年轻女性的全身照片，站姿，长发，面向镜头。\n' +
+      '她穿一套日系JK制服：[藏青/白色]西装式上衣，[格纹/纯色]百褶裙，\n' +
+      '领口系[红色/藏青]领带或领结，白色过膝袜，学生皮鞋，\n' +
+      '搭配同色系书包与发夹。\n' +
+      '写实摄影，纯白摄影棚背景，高级色调，光影自然，人物比例协调，手部与五官自然。\n' +
+      '画面中没有任何文字、标志或水印。',
+  },
+  {
+    id: 'custom',
+    label: '空白模板（自己写）',
+    prompt:
+      '一张真实年轻女性的全身照片，[站姿/坐姿]，[发型]，面向镜头。\n' +
+      '她穿：[上衣的款式、颜色、领口、袖型、印花]，\n' +
+      '[下装的款式、颜色、褶皱、长度]，\n' +
+      '[所有配饰：头饰、项链、腰带、袜子、鞋子，逐项写清颜色与样式]。\n' +
+      '写实摄影，纯白摄影棚背景，高级色调，光影自然，人物比例协调，手部与五官自然。\n' +
+      '画面中没有任何文字、标志或水印。',
+  },
+]
 
 // 按实际传入模型的图片顺序动态生成「图1 / 图2 / 图3...」明确指代，支持附加上传图片
 // 用自然语言逐项描述（人物 / 服装 / 姿势），实测比堆砌要点更能让多图编辑模型还原服装、避免照搬人体模型线条
@@ -471,7 +537,7 @@ function extractUniversalImage(json: any): string | null {
 type ComfyNode = { class_type: string; inputs: Record<string, any>; _meta?: { title?: string; studio?: { imageRole?: string } } }
 type ComfyWorkflow = Record<string, ComfyNode>
 
-export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img' | 'zimage_upscale_fd'
+export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_2img' | 'qwen21_3img' | 'zimage_upscale_fd'
 
 export interface ComfyNodeMappings {
   promptNodeId: string
@@ -531,13 +597,18 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
     workflow: zImageInt8Img2ImgWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
+  qwen21_2img: {
+    label: '③ 两图融合（Qwen 2.1 · 人像+姿势 · 服装靠文字描述 · 推荐）',
+    workflow: qwen21TwoImageWorkflow as ComfyWorkflow,
+    defaults: { promptNodeId: '5', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: '12', stitchedNodeId: 'none' },
+  },
   qwen21_3img: {
-    label: '③ 三图融合（Qwen 2.1 · 人像+服装+姿势 · 已实测）',
+    label: '④ 三图融合（Qwen 2.1 · 人像+服装+姿势 · 服装图实测基本无效）',
     workflow: qwen21ThreeImageWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '5', portraitNodeId: '10', costumeNodeId: '11', poseNodeId: '12', stitchedNodeId: 'none' },
   },
   zimage_upscale_fd: {
-    label: '④ 成品层：2K放大 + FaceDetailer 重绘（上传图/生成结果）',
+    label: '⑤ 成品层：2K放大 + FaceDetailer 重绘（上传图/生成结果）',
     workflow: zImageUpscaleFdWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },

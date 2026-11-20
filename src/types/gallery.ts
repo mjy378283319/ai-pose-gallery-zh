@@ -105,7 +105,7 @@ export interface WorkflowParameterOverrides {
 
 export interface ComfyUiParams {
   parameterOverrides?: WorkflowParameterOverrides
-  workflowPreset: 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img' | 'zimage_upscale_fd' | 'custom'
+  workflowPreset: 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_2img' | 'qwen21_3img' | 'zimage_upscale_fd' | 'custom'
   workflowJson: string
   promptNodeId: string
   portraitNodeId: string
