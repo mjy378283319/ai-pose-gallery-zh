@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { DownloadIcon, SearchIcon, TagIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { DownloadIcon, LoaderCircleIcon, SearchIcon, SparklesIcon, TagIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { ImageViewer } from '@/components/common/ImageViewer'
@@ -16,12 +16,13 @@ export const Route = createFileRoute('/history')({
 })
 
 function HistoryPage() {
-  const { history, removeHistoryItem, clearHistory, setCustomPrompt, updateHistoryTags } = useStudio()
+  const { history, removeHistoryItem, clearHistory, setCustomPrompt, updateHistoryTags, extractKeywords } = useStudio()
   const [query, setQuery] = useState('')
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const [zoomUrl, setZoomUrl] = useState<string | null>(null)
   const [tagEdit, setTagEdit] = useState<GenerationHistoryItem | null>(null)
   const [tagDraft, setTagDraft] = useState('')
+  const [extractingId, setExtractingId] = useState<string | null>(null)
 
   // 所有出现过的标签（去重）
   const allTags = useMemo(() => {
@@ -48,6 +49,22 @@ function HistoryPage() {
     const tags = tagDraft.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
     updateHistoryTags(tagEdit.id, Array.from(new Set(tags)))
     setTagEdit(null)
+  }
+  const autoExtract = async (item: GenerationHistoryItem) => {
+    if (extractingId) return
+    setExtractingId(item.id)
+    try {
+      const tags = await extractKeywords(item.imageUrl)
+      if (!tags.length) { toast.error('没识别出关键词'); return }
+      // 合并已有标签
+      const merged = Array.from(new Set([...(item.tags || []), ...tags]))
+      updateHistoryTags(item.id, merged)
+      toast.success(`识别出 ${tags.length} 个关键词：${tags.slice(0, 5).join('、')}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '识别失败')
+    } finally {
+      setExtractingId(null)
+    }
   }
 
   return (
@@ -129,6 +146,10 @@ function HistoryPage() {
                   <button type="button" onClick={() => openTagEdit(h)} title="编辑关键词" className="flex items-center gap-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground transition hover:bg-accent">
                     <TagIcon className="size-2.5" />
                     {h.tags?.length ? '编辑' : '加标签'}
+                  </button>
+                  <button type="button" disabled={extractingId === h.id} onClick={() => void autoExtract(h)} title="用 AI 识别图片自动生成关键词" className="flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary transition hover:bg-primary/20 disabled:opacity-50">
+                    {extractingId === h.id ? <LoaderCircleIcon className="size-2.5 animate-spin" /> : <SparklesIcon className="size-2.5" />}
+                    {extractingId === h.id ? '识别中' : 'AI提取'}
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-1 pt-0.5">

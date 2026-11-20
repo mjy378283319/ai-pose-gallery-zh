@@ -59,7 +59,8 @@ interface EditState {
 }
 
 function MinePage() {
-  const { addExtraImage, setCustomPrompt, history } = useStudio()
+  const { addExtraImage, setCustomPrompt, history, extractKeywords } = useStudio()
+  const [autoKeywords, setAutoKeywords] = useState(true)
   const [items, setItems] = useState<MineItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -125,13 +126,30 @@ function MinePage() {
           continue
         }
         okCount++
+
+        // 自动识图打关键词：无手动说明时，用本地 ComfyUI 识别图片并写入 caption
+        if (autoKeywords && !(files.length === 1 && uploadCaption.trim())) {
+          try {
+            const dataUrl = `data:${file.type || 'image/png'};base64,${data}`
+            const tags = await extractKeywords(dataUrl)
+            if (tags.length) {
+              await fetch('/userdata/caption', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: file.name, caption: tags.join(', ') }),
+              })
+            }
+          } catch {
+            // 识图失败不影响上传本身，仅跳过关键词
+          }
+        }
       } catch (e) {
         lastErr = e instanceof Error ? e.message : '上传失败'
       }
     }
     setUploading(false)
     if (okCount) {
-      toast.success(`已上传 ${okCount} 张${files.length > 1 ? '（多张图片的文字请逐张编辑）' : ''}`)
+      toast.success(`已上传 ${okCount} 张${autoKeywords ? '（已自动识别关键词）' : ''}${files.length > 1 ? '，多张可逐张编辑' : ''}`)
       setFiles([])
       setUploadCaption('')
       if (fileRef.current) fileRef.current.value = ''
@@ -332,6 +350,15 @@ function MinePage() {
           placeholder="文字说明（只在单张上传时自动保存；多张可上传后逐张点铅笔编辑）"
           className="h-11"
         />
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={autoKeywords}
+            onChange={(e) => setAutoKeywords(e.target.checked)}
+            className="size-3.5 accent-primary"
+          />
+          上传后自动识别图片关键词（走本机 ComfyUI，无手动说明时写入说明栏）
+        </label>
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {files.map((f, i) => (

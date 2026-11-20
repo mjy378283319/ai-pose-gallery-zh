@@ -22,6 +22,7 @@ import {
   COMFYUI_WORKFLOW_TEMPLATES,
   DEFAULT_COMFY_PRESET,
   generateCharacterImage,
+  extractImageKeywords,
   resumeComfyTask,
   ComfyTaskError,
   ComfySubmissionRejectedError,
@@ -267,6 +268,8 @@ interface StudioContextValue {
   removeHistoryItem: (id: string) => void
   clearHistory: () => void
   updateHistoryTags: (id: string, tags: string[]) => void
+  /** 用本地 ComfyUI 识图，从图片自动提取关键词；返回关键词数组 */
+  extractKeywords: (imageSrc: string) => Promise<string[]>
 }
 
 const StudioContext = createContext<StudioContextValue | null>(null)
@@ -630,6 +633,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const updateHistoryTags = (id: string, tags: string[]) => {
     void persistHistory((current) => current.map((x) => x.id === id ? { ...x, tags } : x)).then(() => toast.success('关键词已保存')).catch(() => toast.error('关键词保存失败'))
   }
+  const extractKeywords = async (imageSrc: string): Promise<string[]> => {
+    const comfy = apiConfig.providers.comfyui
+    return extractImageKeywords({
+      baseUrl: comfy.baseUrl || '/comfy',
+      apiKey: comfy.apiKey || '',
+      imageSrc,
+      timeoutSec: apiConfig.comfyuiParams.timeoutSec,
+    })
+  }
   const clearHistory = () => {
     void persistHistory(() => []).then(() => { localStorage.removeItem(HISTORY_KEY); toast.success('已清空记录') }).catch(() => toast.error('清空记录失败'))
   }
@@ -826,6 +838,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         removeHistoryItem,
         clearHistory,
         updateHistoryTags,
+        extractKeywords,
       }}
     >
       {children}

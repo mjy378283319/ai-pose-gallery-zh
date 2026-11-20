@@ -1646,6 +1646,87 @@ async function generateWithComfyUi(params: {
   } finally { socket.close() }
 }
 
+/**
+ * 用 ComfyUI 的 TextGenerate + qwen3.5 i2i 模型，从一张图片自动提取中文关键词。
+ * 实测（2026-11-20）：能准确识别服装款式/颜色/配饰/风格。
+ * 走本地 ComfyUI（/comfy 同源代理），不上云、零痕迹。
+ */
+export async function extractImageKeywords(params: {
+  baseUrl: string
+  apiKey: string
+  imageSrc: string
+  timeoutSec?: number
+}): Promise<string[]> {
+  const { baseUrl, apiKey, imageSrc } = params
+  const timeoutSec = params.timeoutSec ?? 120
+
+  // 1. 上传图片到 ComfyUI input
+  const imageName = await uploadImageToComfy(baseUrl, imageSrc, 'kw_extract', apiKey)
+
+  // 2. 组 TextGenerate 工作流（sampling_mode 用 'off'=greedy，最稳）
+  const SYSTEM_PROMPT =
+    '你是一个图片标签助手。仔细观察图片，提取最能描述这张图的中文关键词，用逗号分隔。' +
+    '只输出关键词本身，不要解释、不要编号。关键词覆盖：主体类型、服装款式、颜色、配饰、风格。' +
+    '去重后最多 15 个词，每个词 2-6 字。'
+  const workflow: Record<string, any> = {
+    '1': { class_type: 'CLIPLoader', inputs: { clip_name: 'qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors', type: 'qwen_image', device: 'default' } },
+    '2': { class_type: 'LoadImage', inputs: { image: imageName } },
+    '3': {
+      class_type: 'TextGenerate',
+      inputs: {
+        clip: ['1', 0],
+        prompt: '提取这张图片的关键词',
+        max_length: 256,
+        sampling_mode: 'off',
+        image: ['2', 0],
+        system_prompt: SYSTEM_PROMPT,
+        use_default_template: true,
+        thinking: false,
+      },
+    },
+    '4': { class_type: 'PreviewAny', inputs: { source: ['3', 0] } },
+  }
+
+  // 3. 提交
+  const clientId = `kw_extract_${crypto.randomUUID()}`
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  if (apiKey.trim()) headers.set('Authorization', `Bearer ${apiKey.trim()}`)
+  let submitJson: any
+  try {
+    const res = await fetch(`${baseUrl}/prompt`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ prompt: workflow, client_id: clientId }),
+    })
+    submitJson = await readJsonSafe(res)
+    if (!res.ok) throw new Error(`提交识图任务失败 (HTTP ${res.status})：${JSON.stringify(submitJson).slice(0, 200)}`)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
+  const promptId = submitJson?.prompt_id
+  if (typeof promptId !== 'string' || !promptId) throw new Error('识图任务未返回 prompt_id')
+
+  // 4. 轮询 history
+  const deadline = Date.now() + timeoutSec * 1000
+  while (Date.now() < deadline) {
+    const hist = await readJsonSafe(await comfyFetch(baseUrl, `/history/${encodeURIComponent(promptId)}`, {}, apiKey, 15000))
+    const entry = hist?.[promptId]
+    if (entry?.status?.status_str === 'error') throw new Error('识图任务执行失败，请确认 ComfyUI 已装 qwen3.5 i2i 模型')
+    if (entry?.status?.status_str === 'success') {
+      let raw = ''
+      for (const o of Object.values<any>(entry.outputs || {})) {
+        const t = o?.text
+        if (Array.isArray(t) && typeof t[0] === 'string') { raw = t[0]; break }
+      }
+      if (!raw) throw new Error('识图任务未返回文字结果')
+      // 解析逗号分隔（中英文逗号），去重、去空、限 15 个
+      const tags = raw.split(/[,，、]/).map((s) => s.trim().replace(/[。.!！]$/, '')).filter(Boolean)
+      return Array.from(new Set(tags)).slice(0, 15)
+    }
+    await new Promise((r) => setTimeout(r, 800))
+  }
+  throw new Error('识图超时，可能模型首次加载较慢，请稍后重试')
+}
+
 export async function generateCharacterImage(params: {
   recipe: RecipeState
   prompt: string
