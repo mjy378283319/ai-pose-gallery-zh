@@ -55,7 +55,7 @@ const TASK_KEY = 'pose_atlas_active_task_v1'
 type ActiveTask = { task?: ComfyTaskHandle; prompt: string; summary: string; unknown?: boolean; snapshot?: GenerationSnapshot }
 const SAFE_MODE_KEY = 'pose_atlas_safe_mode_v1'
 
-const COMFY_CONFIG_VERSION = 6
+const COMFY_CONFIG_VERSION = 7
 
 const shouldEnableProxyByDefault = (provider?: ImageProviderId) =>
   provider === 'qwen' || provider === 'doubao'
@@ -148,16 +148,14 @@ function migrateComfy(
   const nextParams = { ...params, configVersion: COMFY_CONFIG_VERSION }
   // v4：旧的 Omni 单图/三图预设走 TextEncodeZImageOmni，在 B 房 INT8 上会出棋盘格。
   // v5：img2img 预设强制要求底稿，合成台无法纯提示词生成；统一迁移回纯文生图默认。
-  // v6：统一默认参数为 832×1216 / Steps 8 / CFG 1 / res_multistep / simple / shift 3 / denoise 1，
-  //     需要把浏览器里缓存的旧工作流 JSON 快照强制刷新成内置最新模板，否则看不到新参数。
+  // v6：统一默认参数为 832×1216 / Steps 8 / CFG 1 / res_multistep / simple / shift 3 / denoise 1。
+  // v7：工作流模板精简为 3 个（提示词生图 / 参考图生图 / Qwen2.1 三图融合），
+  //     删除了所有用不了的旧模板（Omni 棋盘格、Qwen2509 需20G、旧 Qwen2.1 模型名错误）。
+  //     强制把浏览器缓存的旧工作流 JSON 快照刷新成新的内置模板，否则下拉里还显示已删项、或用着坏模板。
   // 用户若手动导入了自定义工作流（custom），保留其 JSON 不覆盖。
   const isCustom = params.workflowPreset === 'custom'
-  const legacyPreset = params.workflowPreset === 'qwen21_3img' || params.workflowPreset === 'qwen21_2img'
-    || params.workflowPreset === 'zimage_int8_3img' || params.workflowPreset === 'zimage_int8_img2img'
-  const usesOmni = typeof params.workflowJson === 'string' && params.workflowJson.includes('TextEncodeZImageOmni')
-  const usesImg2Img = typeof params.workflowJson === 'string' && params.workflowJson.includes('VAEEncode')
-  const forceRefresh = storedVer < 6 || legacyPreset || usesOmni || usesImg2Img
-  if (forceRefresh && !isCustom) {
+  if (storedVer < 7 && !isCustom) {
+    // 已删除的旧预设 ID 一律迁回默认；仍存在的 ID（t2i/img2img/qwen21_3img）刷新为新模板内容。
     const presetId = (params.workflowPreset in COMFYUI_WORKFLOW_TEMPLATES
       ? params.workflowPreset : DEFAULT_COMFY_PRESET) as keyof typeof COMFYUI_WORKFLOW_TEMPLATES
     const tpl = COMFYUI_WORKFLOW_TEMPLATES[presetId]
@@ -198,7 +196,7 @@ function mergeStoredConfig(raw: unknown): ApiConfig {
     ...obj,
     activeProvider,
     useProxy,
-    imageCount: Number.isFinite(storedCount) ? Math.min(4, Math.max(1, Math.trunc(storedCount))) : DEFAULT_API_CONFIG.imageCount,
+    imageCount: Number.isFinite(storedCount) ? Math.min(32, Math.max(1, Math.trunc(storedCount))) : DEFAULT_API_CONFIG.imageCount,
     providers: {
       gemini: { ...DEFAULT_API_CONFIG.providers.gemini, ...obj.providers?.gemini },
       gpt: { ...DEFAULT_API_CONFIG.providers.gpt, ...obj.providers?.gpt },
@@ -703,7 +701,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     // （aiGenerator 提交前会强制锁定），避免显存峰值超过 8G、也避免数量被 batch_size 放大。
     // 批量时一次性把 N 个任务全部提交进队列，由 ComfyUI 队列自行调度执行。
     const requestedCount = Number(configSnapshot.imageCount)
-    const total = Number.isFinite(requestedCount) ? Math.min(4, Math.max(1, Math.trunc(requestedCount))) : 1
+    const total = Number.isFinite(requestedCount) ? Math.min(32, Math.max(1, Math.trunc(requestedCount))) : 1
     isGeneratingRef.current = true
     setIsGenerating(true)
     setGeneratingModel(configSnapshot.activeProvider)

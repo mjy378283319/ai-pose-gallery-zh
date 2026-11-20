@@ -1,7 +1,7 @@
 import type { ApiConfig, ExtraReferenceImage, ImageProviderId, RecipeState } from '@/types/gallery'
 import { applyWorkflowOverrides, getWorkflowImages, validateReferenceCombinations, workflowIdentity, type ComfyObjectInfo } from '@/lib/comfyWorkflowParameters'
 import { poseImagePath, referenceImageUrl } from '@/lib/recipeImages'
-import qwen2509ThreeImageWorkflow from '@/workflows/qwen_image_edit_2509_3img.api.json'
+import qwen21ThreeImageWorkflow from '@/workflows/qwen_image_21_3img.api.json'
 import zImageInt8Img2ImgWorkflow from '@/workflows/z_image_int8_img2img.api.json'
 import zImageInt8T2IWorkflow from '@/workflows/z_image_int8_t2i.api.json'
 
@@ -468,185 +468,7 @@ function extractUniversalImage(json: any): string | null {
 type ComfyNode = { class_type: string; inputs: Record<string, any>; _meta?: { title?: string; studio?: { imageRole?: string } } }
 type ComfyWorkflow = Record<string, ComfyNode>
 
-// B 房本机可用：Z-Image Turbo INT8 三图合一（人像+服装+姿势），
-// 已含等比缩放补边节点，兼容纯文字/单图/任意组合。
-const zimageInt8ThreeImageWorkflow = {
-  "1": {
-    "class_type": "UNETLoader",
-    "inputs": {
-      "unet_name": "z_image_turbo_int8_convrot.safetensors",
-      "weight_dtype": "default"
-    },
-    "_meta": {
-      "title": "Z-Image-Turbo INT8 扩散模型"
-    }
-  },
-  "2": {
-    "class_type": "CLIPLoader",
-    "inputs": {
-      "clip_name": "qwen_3_4b_fp8_mixed.safetensors",
-      "type": "lumina2",
-      "device": "default"
-    },
-    "_meta": {
-      "title": "Qwen3-4B 文本编码器"
-    }
-  },
-  "8": {
-    "class_type": "VAELoader",
-    "inputs": {
-      "vae_name": "ae.safetensors"
-    },
-    "_meta": {
-      "title": "VAE（同时编码三张参考图）"
-    }
-  },
-  "10": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "portrait_placeholder.png"
-    },
-    "_meta": {
-      "title": "#1 参考图（人像/服装/姿势任选一张）· 由合成台上传"
-    }
-  },
-  "3": {
-    "class_type": "TextEncodeZImageOmni",
-    "inputs": {
-      "clip": [
-        "2",
-        0
-      ],
-      "prompt": "{{prompt}}",
-      "auto_resize_images": true,
-      "vae": [
-        "8",
-        0
-      ],
-      "image1": [
-        "40",
-        0
-      ]
-    },
-    "_meta": {
-      "title": "三图融合提示词（由合成台注入）"
-    }
-  },
-  "4": {
-    "class_type": "CLIPTextEncode",
-    "inputs": {
-      "text": "",
-      "clip": [
-        "2",
-        0
-      ]
-    },
-    "_meta": {
-      "title": "Negative (CFG=1 蒸馏模型不生效)"
-    }
-  },
-  "5": {
-    "class_type": "EmptySD3LatentImage",
-    "inputs": {
-      "width": 832,
-      "height": 1216,
-      "batch_size": 1
-    },
-    "_meta": {
-      "title": "输出尺寸 832×1216"
-    }
-  },
-  "6": {
-    "class_type": "ModelSamplingAuraFlow",
-    "inputs": {
-      "model": [
-        "1",
-        0
-      ],
-      "shift": 3.0
-    },
-    "_meta": {
-      "title": "AuraFlow shift 3.0"
-    }
-  },
-  "30": {
-    "class_type": "KSampler",
-    "inputs": {
-      "model": [
-        "6",
-        0
-      ],
-      "seed": 729703840979498,
-      "steps": 8,
-      "cfg": 1.0,
-      "sampler_name": "res_multistep",
-      "scheduler": "simple",
-      "denoise": 1.0,
-      "positive": [
-        "3",
-        0
-      ],
-      "negative": [
-        "4",
-        0
-      ],
-      "latent_image": [
-        "5",
-        0
-      ]
-    },
-    "_meta": {
-      "title": "KSampler 8 步 / CFG 1"
-    }
-  },
-  "7": {
-    "class_type": "VAEDecode",
-    "inputs": {
-      "samples": [
-        "30",
-        0
-      ],
-      "vae": [
-        "8",
-        0
-      ]
-    },
-    "_meta": {
-      "title": "VAE 解码"
-    }
-  },
-  "31": {
-    "class_type": "SaveImage",
-    "inputs": {
-      "images": [
-        "7",
-        0
-      ],
-      "filename_prefix": "three-in-one-int8"
-    },
-    "_meta": {
-      "title": "保存三合一结果"
-    }
-  },
-  "40": {
-    "class_type": "ResizeAndPadImage",
-    "inputs": {
-      "image": [
-        "10",
-        0
-      ],
-      "target_width": 832,
-      "target_height": 1216,
-      "padding_color": "black",
-      "interpolation": "lanczos"
-    },
-    "_meta": {
-      "title": "等比缩放补边到 832×1216"
-    }
-  }
-} as ComfyWorkflow
-
-export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'zimage_int8_3img' | 'qwen2509_3img' | 'qwen2509_2img' | 'qwen21_3img' | 'qwen21_2img'
+export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img'
 
 export interface ComfyNodeMappings {
   promptNodeId: string
@@ -690,111 +512,6 @@ export function comfyCandidateUrls(current = ''): string[] {
   return Array.from(new Set(list))
 }
 
-function cloneWorkflow<T>(wf: T): T {
-  return JSON.parse(JSON.stringify(wf))
-}
-
-// 双图版：图1 = 人物（含服装），图2 = 姿势（姿势图只送入视觉语言编码器，不作为像素参考）
-function buildQwen2509TwoImage(): ComfyWorkflow {
-  const wf = cloneWorkflow(qwen2509ThreeImageWorkflow) as ComfyWorkflow
-  for (const id of ['2', '22', '23', '25', '27']) delete wf[id]
-  wf['1']._meta = { title: '图1：人物/服装参考 (Person)' }
-  wf['3']._meta = { title: '图2：姿势参考 (Pose)' }
-  for (const id of ['12', '13']) {
-    wf[id].inputs.image2 = ['3', 0]
-    delete wf[id].inputs.image3
-  }
-  wf['14'].inputs.positive = ['24', 0]
-  wf['14'].inputs.negative = ['26', 0]
-  return wf
-}
-
-// 旧版 Qwen-Image 2.1 预设（需要另行安装 2.1 模型；默认已改用本机可用的 Edit 2509）
-function buildQwen21Workflow(threeImages: boolean): ComfyWorkflow {
-  const wf: ComfyWorkflow = {
-    '1': {
-      inputs: { image: 'portrait_ref.png' },
-      class_type: 'LoadImage',
-      _meta: { title: threeImages ? '图1：人像参考 (Portrait)' : '图2：人物/服装参考图 (Person)' },
-    },
-    '4': {
-      inputs: { unet_name: 'image2image/qwen_image_2.1_bf16.safetensors', weight_dtype: 'default' },
-      class_type: 'UNETLoader',
-      _meta: { title: '加载 Qwen Image 2.1 基础模型' },
-    },
-    '5': {
-      inputs: {
-        model: ['4', 0],
-        lora_name: 'qwen2.1/动作编辑VNCCS_QI2_PoseStudioV2_3294845.safetensors',
-        strength_model: 1.0,
-      },
-      class_type: 'LoraLoaderModelOnly',
-      _meta: { title: '加载姿态编辑 LoRA 适配器 (Qwen 2.1 专用)' },
-    },
-    '6': {
-      inputs: { device: 'auto', dtype: 'default', model: ['5', 0] },
-      class_type: 'QwenImage21Cache',
-      _meta: { title: 'Qwen Image 2.1 条件缓存' },
-    },
-    '7': {
-      inputs: { clip_name: 'text_encoders/qwen3vl_8b_bf16.safetensors', type: 'qwen_image', device: 'default' },
-      class_type: 'CLIPLoader',
-      _meta: { title: '加载 Qwen3-VL 8B 编码器' },
-    },
-    '8': {
-      inputs: { vae_name: 'vae/qwen_image_2.1_vae_bf16.safetensors' },
-      class_type: 'VAELoader',
-      _meta: { title: '加载 Qwen Image 2.1 VAE' },
-    },
-    '9': {
-      inputs: {
-        prompt: '',
-        negative_prompt: '',
-        resolution: 1024,
-        clip: ['7', 0],
-        vae: ['8', 0],
-      },
-      class_type: 'TextEncodeQwenImage21',
-      _meta: { title: '正向提示词与多图编码 (Qwen 2.1)' },
-    },
-    '10': {
-      inputs: {
-        seed: 20261031,
-        steps: 25,
-        cfg: 1.0,
-        sampler_name: 'euler',
-        scheduler: 'simple',
-        denoise: 1.0,
-        model: ['6', 0],
-        positive: ['9', 0],
-        negative: ['9', 1],
-        latent_image: ['9', 2],
-      },
-      class_type: 'KSampler',
-      _meta: { title: 'KSampler 采样器' },
-    },
-    '11': {
-      inputs: { samples: ['10', 0], vae: ['8', 0] },
-      class_type: 'VAEDecode',
-      _meta: { title: 'VAE 解码' },
-    },
-    '12': {
-      inputs: { filename_prefix: 'pose_studio/result', images: ['11', 0] },
-      class_type: 'SaveImage',
-      _meta: { title: '保存生成结果' },
-    },
-  }
-  if (threeImages) {
-    wf['2'] = { inputs: { image: 'costume_ref.png' }, class_type: 'LoadImage', _meta: { title: '图2：服装参考 (Costume)' } }
-    wf['3'] = { inputs: { image: 'pose_ref.png' }, class_type: 'LoadImage', _meta: { title: '图3：姿势参考 (Pose)' } }
-    Object.assign(wf['9'].inputs, { 'images.image_1': ['1', 0], 'images.image_2': ['2', 0], 'images.image_3': ['3', 0] })
-  } else {
-    wf['2'] = { inputs: { image: 'pose_reference.png' }, class_type: 'LoadImage', _meta: { title: '图1：姿势参考图 (Pose)' } }
-    Object.assign(wf['9'].inputs, { 'images.image_1': ['2', 0], 'images.image_2': ['1', 0] })
-  }
-  return wf
-}
-
 export const DEFAULT_COMFY_PRESET: ComfyPresetId = 'zimage_int8_t2i'
 
 export const COMFYUI_WORKFLOW_TEMPLATES: Record<
@@ -811,30 +528,10 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
     workflow: zImageInt8Img2ImgWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
-  zimage_int8_3img: {
-    label: 'Z-Image INT8 单图参考Omni（实验·可能棋盘格）',
-    workflow: zimageInt8ThreeImageWorkflow,
-    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
-  },
-  qwen2509_3img: {
-    label: 'Qwen Image Edit 2509 三图合成（人像+服装+姿势）· 推荐',
-    workflow: qwen2509ThreeImageWorkflow as ComfyWorkflow,
-    defaults: { promptNodeId: '12', portraitNodeId: '1', costumeNodeId: '2', poseNodeId: '3', stitchedNodeId: 'none' },
-  },
-  qwen2509_2img: {
-    label: 'Qwen Image Edit 2509 双图姿态迁移（人物+姿势）',
-    workflow: buildQwen2509TwoImage(),
-    defaults: { promptNodeId: '12', portraitNodeId: '1', costumeNodeId: 'none', poseNodeId: '3', stitchedNodeId: 'none' },
-  },
   qwen21_3img: {
-    label: 'Qwen-Image 2.1 三图合成（需另装 2.1 模型）',
-    workflow: buildQwen21Workflow(true),
-    defaults: { promptNodeId: '9', portraitNodeId: '1', costumeNodeId: '2', poseNodeId: '3', stitchedNodeId: 'none' },
-  },
-  qwen21_2img: {
-    label: 'Qwen-Image 2.1 双图姿态迁移（需另装 2.1 模型）',
-    workflow: buildQwen21Workflow(false),
-    defaults: { promptNodeId: '9', portraitNodeId: '1', costumeNodeId: 'none', poseNodeId: '2', stitchedNodeId: 'none' },
+    label: '③ 三图融合（Qwen 2.1 · 人像+服装+姿势 · 已实测）',
+    workflow: qwen21ThreeImageWorkflow as ComfyWorkflow,
+    defaults: { promptNodeId: '5', portraitNodeId: '10', costumeNodeId: '11', poseNodeId: '12', stitchedNodeId: 'none' },
   },
 }
 
@@ -947,7 +644,14 @@ export function workflowSupportsOptionalImages(workflowJson: string): boolean {
   try {
     const parsed = JSON.parse(workflowJson)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
-    return Object.values<any>(parsed).some((node) => node?.class_type === 'TextEncodeZImageOmni')
+    const nodes = Object.values<any>(parsed)
+    // Omni 类工作流：参考图是可选上下文。
+    if (nodes.some((node) => node?.class_type === 'TextEncodeZImageOmni')) return true
+    // 纯文生图工作流（如 zimage_int8_t2i）：完全没有 LoadImage 节点，天然支持纯文字。
+    const hasImageNode = nodes.some((node) => node?.class_type === 'LoadImage'
+      || node?.class_type === 'LoadImageGoohai'
+      || typeof node?.inputs?.image === 'string')
+    return !hasImageNode
   } catch {
     return false
   }
@@ -1205,13 +909,16 @@ export async function checkComfyWorkflow(
     const inputs = node.inputs || {}
 
     for (const [name, spec] of Object.entries<any>(required)) {
-      // V3 自动扩展组使用 images.image_1 等扁平输入，组名本身不参与执行。
+      // V3 自动扩展组：ComfyUI 前端导出用 images.image_1 等扁平输入，
+      // 但 API 直接提交（如 Qwen 2.1 三图）也接受 images: { image_1: [...] } 嵌套 dict，两种都算合法。
       if (spec?.[0] === 'COMFY_AUTOGROW_V3') {
+        const nested = inputs[name]
+        const nestedDict = nested && typeof nested === 'object' && !Array.isArray(nested) ? nested as Record<string, unknown> : null
         const template = spec[1]?.template
         if (template?.input?.required) {
           for (let i = 0; i < (template.min ?? 0); i++) {
             const child = template.names?.[i] ?? `${template.prefix}${i}`
-            if (!(`${name}.${child}` in inputs)) {
+            if (!(`${name}.${child}` in inputs) && !(nestedDict && child in nestedDict)) {
               errors.push(`节点 ${id}「${title}」缺少必填输入 ${name}.${child}`)
             }
           }
