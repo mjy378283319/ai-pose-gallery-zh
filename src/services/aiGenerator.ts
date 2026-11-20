@@ -2,6 +2,7 @@ import type { ApiConfig, ExtraReferenceImage, ImageProviderId, RecipeState } fro
 import { applyWorkflowOverrides, getWorkflowImages, validateReferenceCombinations, workflowIdentity, type ComfyObjectInfo } from '@/lib/comfyWorkflowParameters'
 import { poseImagePath, referenceImageUrl } from '@/lib/recipeImages'
 import qwen21ThreeImageWorkflow from '@/workflows/qwen_image_21_3img.api.json'
+import zImageUpscaleFdWorkflow from '@/workflows/z_image_upscale_facedetailer.api.json'
 import zImageInt8Img2ImgWorkflow from '@/workflows/z_image_int8_img2img.api.json'
 import zImageInt8T2IWorkflow from '@/workflows/z_image_int8_t2i.api.json'
 
@@ -183,10 +184,12 @@ export function buildRecipePrompt(recipe: RecipeState, stylePreset = 'realistic'
   }
   if (recipe.costume) {
     costumeIdx = idx
+    // 实测（2026-11-20）：Qwen-Image 2.1 还原服装主要靠提示词里的“具体文字点名”，
+    // 对平铺服装图的视觉理解很弱。简略的“参考名称”会误导模型只生成基础款；
+    // 但纯抽象指令“以图为准”同样无效（会跑偏成别的颜色/款式）。
+    // 因此保留中性表述，真正的细节由用户在提示词框按服装实际配饰逐项补充。
     clauses.push(
-      recipe.costume.source === 'upload'
-        ? `• 服装：让人物穿上图${idx}中展示的整套服装和配饰，每件单品的颜色、款式、面料与配饰都以图${idx}为准。`
-        : `• 服装：让人物穿上图${idx}中展示的整套服装和配饰（参考名称：${recipe.costume.服装名称}），每件单品的颜色、款式、面料与配饰都以图${idx}为准，名称仅作辅助说明。`
+      `• 服装：让人物穿上图${idx}中展示的整套服装和配饰，每件单品的颜色、款式、面料与配饰都以图${idx}为准。`
     )
     idx++
   }
@@ -468,7 +471,7 @@ function extractUniversalImage(json: any): string | null {
 type ComfyNode = { class_type: string; inputs: Record<string, any>; _meta?: { title?: string; studio?: { imageRole?: string } } }
 type ComfyWorkflow = Record<string, ComfyNode>
 
-export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img'
+export type ComfyPresetId = 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img' | 'zimage_upscale_fd'
 
 export interface ComfyNodeMappings {
   promptNodeId: string
@@ -532,6 +535,11 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
     label: '③ 三图融合（Qwen 2.1 · 人像+服装+姿势 · 已实测）',
     workflow: qwen21ThreeImageWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '5', portraitNodeId: '10', costumeNodeId: '11', poseNodeId: '12', stitchedNodeId: 'none' },
+  },
+  zimage_upscale_fd: {
+    label: '④ 成品层：2K放大 + FaceDetailer 重绘（上传图/生成结果）',
+    workflow: zImageUpscaleFdWorkflow as ComfyWorkflow,
+    defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
 }
 
@@ -1488,13 +1496,25 @@ async function generateWithComfyUi(params: {
     }
   }
 
-  // 3. 随机化种子
-  if (cp.randomizeSeed) {
-    const nextSeed = Math.floor(Math.random() * 90000000000000) + 1000000
+  // 3. 种子：随机模式生成新种子；固定模式用界面输入的种子号，便于复现层微调变体。
+  const seedToApply = cp.randomizeSeed
+    ? Math.floor(Math.random() * 90000000000000) + 1000000
+    : (Number.isFinite(cp.fixedSeed) ? Math.trunc(cp.fixedSeed) : null)
+  if (seedToApply !== null) {
     for (const node of Object.values<any>(workflow)) {
       if (!node?.inputs) continue
-      if (typeof node.inputs.seed === 'number') node.inputs.seed = nextSeed
-      if (typeof node.inputs.noise_seed === 'number') node.inputs.noise_seed = nextSeed
+      if (typeof node.inputs.seed === 'number') node.inputs.seed = seedToApply
+      if (typeof node.inputs.noise_seed === 'number') node.inputs.noise_seed = seedToApply
+    }
+  }
+
+  // 3b. 分类前缀：覆盖所有 SaveImage 节点的 filename_prefix，输出文件夹按序列归整。
+  const prefix = typeof cp.filenamePrefix === 'string' ? cp.filenamePrefix.trim() : ''
+  if (prefix) {
+    for (const node of Object.values<any>(workflow)) {
+      if (node?.class_type === 'SaveImage' && node.inputs && typeof node.inputs.filename_prefix === 'string') {
+        node.inputs.filename_prefix = prefix
+      }
     }
   }
 

@@ -1,0 +1,99 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": { "unet_name": "z_image_turbo_int8_convrot.safetensors", "weight_dtype": "default" },
+    "_meta": { "title": "Z-Image Turbo INT8 主模型（重绘用）" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": { "clip_name": "qwen_3_4b_fp8_mixed.safetensors", "type": "lumina2", "device": "default" },
+    "_meta": { "title": "Qwen3-4B 文本编码器" }
+  },
+  "8": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "ae.safetensors" },
+    "_meta": { "title": "VAE" }
+  },
+  "6": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": { "model": ["1", 0], "shift": 3.0 },
+    "_meta": { "title": "AuraFlow shift 3" }
+  },
+  "20": {
+    "class_type": "UltralyticsDetectorProvider",
+    "inputs": { "model_name": "bbox/face_yolov8m.pt" },
+    "_meta": { "title": "人脸检测器 face_yolov8m" }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "{{prompt}}", "clip": ["2", 0] },
+    "_meta": { "title": "正向提示词（重绘面部意图）" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "", "clip": ["2", 0] },
+    "_meta": { "title": "Negative" }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "input_placeholder.png" },
+    "_meta": { "title": "输入图片 · 上传或由合成台结果填入" }
+  },
+  "30": {
+    "class_type": "FaceDetailer",
+    "inputs": {
+      "image": ["10", 0],
+      "model": ["6", 0],
+      "clip": ["2", 0],
+      "vae": ["8", 0],
+      "guide_size": 512,
+      "guide_size_for": true,
+      "max_size": 1024,
+      "seed": 424242,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "denoise": 0.5,
+      "feather": 5,
+      "noise_mask": true,
+      "force_inpaint": true,
+      "bbox_threshold": 0.5,
+      "bbox_dilation": 10,
+      "bbox_crop_factor": 3.0,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 10,
+      "bbox_detector": ["20", 0],
+      "wildcard": "",
+      "cycle": 1
+    },
+    "_meta": { "title": "FaceDetailer 面部重绘（8步/CFG1/denoise0.5）" }
+  },
+  "40": {
+    "class_type": "UpscaleModelLoader",
+    "inputs": { "model_name": "RealESRGAN_x4plus.pth" },
+    "_meta": { "title": "RealESRGAN x4 放大模型" }
+  },
+  "41": {
+    "class_type": "ImageUpscaleWithModel",
+    "inputs": { "upscale_model": ["40", 0], "image": ["30", 0] },
+    "_meta": { "title": "2K 放大（x4 后按需缩放）" }
+  },
+  "42": {
+    "class_type": "ImageScaleBy",
+    "inputs": { "image": ["41", 0], "scale_by": 0.5, "upscale_method": "lanczos" },
+    "_meta": { "title": "x4 再 ×0.5 = x2，832×1216 → 1664×2432（2K）" }
+  },
+  "31": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["42", 0], "filename_prefix": "upscale-facedetailer" },
+    "_meta": { "title": "保存成品层大图（分类前缀由界面覆盖）" }
+  }
+}

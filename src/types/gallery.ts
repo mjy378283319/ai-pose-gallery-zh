@@ -105,7 +105,7 @@ export interface WorkflowParameterOverrides {
 
 export interface ComfyUiParams {
   parameterOverrides?: WorkflowParameterOverrides
-  workflowPreset: 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img' | 'custom'
+  workflowPreset: 'zimage_int8_t2i' | 'zimage_int8_img2img' | 'qwen21_3img' | 'zimage_upscale_fd' | 'custom'
   workflowJson: string
   promptNodeId: string
   portraitNodeId: string
@@ -113,6 +113,10 @@ export interface ComfyUiParams {
   poseNodeId: string
   stitchedNodeId: string
   randomizeSeed: boolean
+  /** 固定种子号：randomizeSeed=false 时用它覆盖所有 seed 节点 */
+  fixedSeed: number
+  /** 保存图像的分类前缀，如 NSFW_LaceSeries_ */
+  filenamePrefix: string
   /** 单次生成最长等待秒数 */
   timeoutSec: number
   /** 配置结构版本，用于迁移旧版默认值 */

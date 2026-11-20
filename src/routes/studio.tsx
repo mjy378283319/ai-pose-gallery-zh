@@ -78,6 +78,34 @@ export const Route = createFileRoute('/studio')({
   component: StudioPage,
 })
 
+// 解析 PNG 内的 tEXt 元数据（ComfyUI 把 API 工作流写进 prompt 字段）。
+// 返回 { prompt?, workflow? }，均为 JSON 字符串。
+function parsePngMetadata(buffer: ArrayBuffer): { prompt?: string; workflow?: string } {
+  const bytes = new Uint8Array(buffer)
+  const dv = new DataView(buffer)
+  if (bytes.length < 8 || dv.getUint32(0) !== 0x89504e47) return {}
+  let offset = 8
+  const out: { prompt?: string; workflow?: string } = {}
+  const decoder = new TextDecoder('utf-8')
+  while (offset + 12 <= bytes.length) {
+    const len = dv.getUint32(offset)
+    const type = String.fromCharCode(...bytes.slice(offset + 4, offset + 8))
+    if (type === 'IDAT' || type === 'IEND') break
+    if (type === 'tEXt' && len > 0 && offset + 8 + len <= bytes.length) {
+      const chunk = bytes.slice(offset + 8, offset + 8 + len)
+      const zero = chunk.indexOf(0)
+      if (zero > 0) {
+        const key = decoder.decode(chunk.slice(0, zero))
+        const value = decoder.decode(chunk.slice(zero + 1))
+        if (key === 'prompt') out.prompt = value
+        if (key === 'workflow') out.workflow = value
+      }
+    }
+    offset += 12 + len
+  }
+  return out
+}
+
 const PROVIDER_LIST: ImageProviderId[] = ['gemini', 'gpt', 'qwen', 'doubao', 'comfyui']
 
 function StudioPage() {
@@ -118,6 +146,7 @@ function StudioPage() {
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const comfyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const pngRestoreRef = useRef<HTMLInputElement | null>(null)
   const slotInputRef = useRef<HTMLInputElement | null>(null)
   const uploadSlotRef = useRef<'portrait' | 'costume' | 'pose'>('portrait')
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null)
@@ -226,6 +255,65 @@ function StudioPage() {
       )
     } catch {
       toast.error('读取 JSON 文件失败')
+    }
+  }
+
+  // 把成图拖回：解析 PNG 内嵌的 API 工作流，完整还原节点/种子/提示词。
+  const handlePngRestore = async (file: File) => {
+    try {
+      const meta = parsePngMetadata(await file.arrayBuffer())
+      const raw = meta.prompt || meta.workflow
+      if (!raw) {
+        toast.error('这张 PNG 没有 ComfyUI 工作流信息（须由 ComfyUI 生成的成图）')
+        return
+      }
+      let parsed: Record<string, any>
+      try { parsed = JSON.parse(raw) } catch { toast.error('图内工作流 JSON 解析失败'); return }
+      // 画布格式（带 nodes/links）无法直接还原成 API 格式，明确提示。
+      if (Array.isArray(parsed.nodes) && Array.isArray(parsed.links)) {
+        toast.error('图内是画布格式工作流，暂不支持完整还原；请用 ComfyUI「导出 API」的 JSON')
+        return
+      }
+      const wfText = JSON.stringify(parsed, null, 2)
+      const info = parseComfyWorkflowNodes(wfText)
+      if (!info.valid) { toast.error(info.error || '图内工作流无效'); return }
+      const detected = autoDetectComfyMappings(wfText)
+
+      // 提取种子（第一个 KSampler 类节点的 seed/noise_seed）→ 填入固定种子框。
+      let seed: number | null = null
+      for (const node of Object.values<any>(parsed)) {
+        const s = node?.inputs?.seed ?? node?.inputs?.noise_seed
+        if (typeof s === 'number') { seed = s; break }
+      }
+      // 提取提示词（映射节点或第一个文本节点）。
+      let promptText = ''
+      const pNode = parsed[detected.promptNodeId]
+      if (pNode?.inputs) {
+        for (const f of ['prompt', 'text', 'string', 'positive']) {
+          if (typeof pNode.inputs[f] === 'string') { promptText = pNode.inputs[f]; break }
+        }
+      }
+      if (!promptText) {
+        for (const node of Object.values<any>(parsed)) {
+          for (const f of ['prompt', 'text']) {
+            if (typeof node?.inputs?.[f] === 'string' && node.inputs[f]) { promptText = node.inputs[f]; break }
+          }
+          if (promptText) break
+        }
+      }
+
+      setComfyCheck(null)
+      updateComfyUiParams({
+        workflowPreset: 'custom',
+        workflowJson: wfText,
+        ...detected,
+        ...(seed !== null ? { randomizeSeed: false, fixedSeed: seed } : {}),
+      })
+      if (promptText) setCustomPrompt(promptText)
+      setShowAdvanced(true)
+      toast.success(`已还原工作流：${info.imageNodes.length} 图节点 / ${info.promptNodes.length} 提示词节点${seed !== null ? `，种子 ${seed}` : ''}`)
+    } catch {
+      toast.error('读取 PNG 失败')
     }
   }
 
@@ -849,6 +937,17 @@ function StudioPage() {
                       onChange={handleComfyFileUpload}
                       className="hidden"
                     />
+                    <input
+                      ref={pngRestoreRef}
+                      type="file"
+                      accept=".png,image/png"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        e.target.value = ''
+                        if (f) void handlePngRestore(f)
+                      }}
+                      className="hidden"
+                    />
                     <Button
                       type="button"
                       variant="outline"
@@ -868,6 +967,17 @@ function StudioPage() {
                     >
                       <CodeXmlIcon className="size-3.5" />
                       编辑 JSON
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => pngRestoreRef.current?.click()}
+                      title="把 ComfyUI 生成的 PNG 拖进来/选进来，还原当时的节点、种子和提示词"
+                    >
+                      <RotateCcwIcon className="size-3.5" />
+                      还原成图
                     </Button>
                     <Button
                       type="button"
@@ -1376,13 +1486,32 @@ function StudioPage() {
                     <Field label="随机种子 (seed)">
                       <div className="flex h-9 items-center justify-between rounded-xl border bg-background px-3">
                         <span className="text-xs text-muted-foreground">
-                          {apiConfig.comfyuiParams.randomizeSeed ? '每次随机种子' : '固定工作流种子'}
+                          {apiConfig.comfyuiParams.randomizeSeed ? '每次随机种子' : '固定种子（用下方种子号）'}
                         </span>
                         <Switch
                           checked={apiConfig.comfyuiParams.randomizeSeed}
                           onCheckedChange={(v) => updateComfyUiParams({ randomizeSeed: v })}
                         />
                       </div>
+                    </Field>
+                    {!apiConfig.comfyuiParams.randomizeSeed && (
+                      <Field label="固定种子号">
+                        <Input
+                          type="number"
+                          value={apiConfig.comfyuiParams.fixedSeed}
+                          onChange={(e) => updateComfyUiParams({ fixedSeed: Number(e.target.value) || 0 })}
+                          className="bg-background text-xs"
+                          placeholder="如 424242，复现层固定此值微调词汇"
+                        />
+                      </Field>
+                    )}
+                    <Field label="文件名分类前缀">
+                      <Input
+                        value={apiConfig.comfyuiParams.filenamePrefix}
+                        onChange={(e) => updateComfyUiParams({ filenamePrefix: e.target.value })}
+                        className="bg-background text-xs"
+                        placeholder="如 NSFW_LaceSeries_，留空则用工作流默认"
+                      />
                     </Field>
                   </>
                 )}

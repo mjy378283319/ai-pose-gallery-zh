@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { CheckIcon, CopyIcon, FileTextIcon, FolderOpenIcon, ImagePlusIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, FileTextIcon, FolderOpenIcon, ImagePlusIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, SparklesIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -42,6 +42,14 @@ function toBase64(file: File): Promise<string> {
   })
 }
 
+// 生成记录的 imageUrl 是 data:image/... (base64)，转成 File 以便复用现有上传链路。
+async function dataUrlToFile(dataUrl: string, nameHint: string): Promise<File> {
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  const ext = (blob.type.split('/')[1] || 'png').split(';')[0].replace('jpeg', 'jpg')
+  return new File([blob], `${nameHint}.${ext}`, { type: blob.type || 'image/png' })
+}
+
 // 编辑弹窗状态：item=正在编辑的素材；imageFile=新选的图片（换图/加图）
 interface EditState {
   item: MineItem
@@ -51,7 +59,7 @@ interface EditState {
 }
 
 function MinePage() {
-  const { addExtraImage, setCustomPrompt } = useStudio()
+  const { addExtraImage, setCustomPrompt, history } = useStudio()
   const [items, setItems] = useState<MineItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -66,6 +74,8 @@ function MinePage() {
   const [textBody, setTextBody] = useState('')
   const [textImage, setTextImage] = useState<File | null>(null)
   const [savingText, setSavingText] = useState(false)
+  // 从生成记录选配图：'edit'=编辑弹窗，'text'=直接添加文字
+  const [pickerFor, setPickerFor] = useState<'edit' | 'text' | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const editImageRef = useRef<HTMLInputElement>(null)
   const textImageRef = useRef<HTMLInputElement>(null)
@@ -241,6 +251,20 @@ function MinePage() {
     }
   }
 
+  // 从生成记录选一张图作为配图：转成 File 后填入对应入口，复用现有保存链路。
+  const pickGenerated = async (url: string) => {
+    if (!pickerFor) return
+    try {
+      const file = await dataUrlToFile(url, `生成图_${Date.now()}`)
+      if (pickerFor === 'edit') setEdit((prev) => prev ? { ...prev, imageFile: file } : prev)
+      else setTextImage(file)
+      setPickerFor(null)
+      toast.success('已选为配图，保存后生效')
+    } catch {
+      toast.error('读取生成图失败')
+    }
+  }
+
   const deleteTextItem = async (item: MineItem) => {
     const res = await fetch(`/userdata/text?name=${encodeURIComponent(item.name)}`, { method: 'DELETE' })
     const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
@@ -356,6 +380,10 @@ function MinePage() {
               onChange={(e) => setTextImage(e.target.files?.[0] || null)}
               className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
             />
+            <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('text')}>
+              <SparklesIcon className="size-3.5" />
+              从生成记录选图
+            </Button>
             {textImage && (
               <div className="relative overflow-hidden rounded-lg border">
                 <img src={URL.createObjectURL(textImage)} alt="配图预览" className="h-32 w-full object-cover" />
@@ -489,7 +517,11 @@ function MinePage() {
                       onChange={(e) => setEdit({ ...edit, imageFile: e.target.files?.[0] || null })}
                       className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
                     />
-                    <p className="text-xs text-muted-foreground">{edit.item.kind === 'text' ? '选一张图片即可给这条文字配图。' : '选一张新图片会替换当前图片（保存后生效）。'}</p>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('edit')}>
+                      <SparklesIcon className="size-3.5" />
+                      从生成记录选图
+                    </Button>
+                    <p className="text-xs text-muted-foreground">{edit.item.kind === 'text' ? '可上传本地图片，或从生成记录里选一张作为配图。' : '可上传本地图片，或从生成记录里选一张替换当前图片（保存后生效）。'}</p>
                     {edit.imageFile && <Button size="sm" variant="ghost" className="w-fit" onClick={() => { setEdit({ ...edit, imageFile: null }); if (editImageRef.current) editImageRef.current.value = '' }}>清除选择</Button>}
                   </div>
                 </div>
@@ -514,6 +546,44 @@ function MinePage() {
                 {savingEdit ? '保存中…' : '保存修改'}
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 从生成记录选配图 */}
+      {pickerFor && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={() => setPickerFor(null)}>
+          <div className="max-h-[86vh] w-full max-w-3xl overflow-y-auto rounded-2xl border bg-card p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">从生成记录选配图</h2>
+                <p className="mt-1 text-xs text-muted-foreground">点一张即可选为配图（最多显示 30 条生成记录）</p>
+              </div>
+              <button type="button" onClick={() => setPickerFor(null)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent"><XIcon className="size-5" /></button>
+            </div>
+            {history.length === 0 ? (
+              <div className="mt-8 flex flex-col items-center gap-2 py-10 text-muted-foreground">
+                <SparklesIcon className="size-8" />
+                <p className="text-sm">还没有生成记录。先在「AI 角色合成台」生成图片后再来选。</p>
+              </div>
+            ) : (
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {history.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => void pickGenerated(h.imageUrl)}
+                    className="group overflow-hidden rounded-xl border text-left transition hover:ring-2 hover:ring-primary"
+                    title={h.prompt}
+                  >
+                    <img src={h.imageUrl} alt="生成记录" className="h-32 w-full object-cover" />
+                    <div className="p-1.5 text-[10px] text-muted-foreground">
+                      {new Date(h.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
