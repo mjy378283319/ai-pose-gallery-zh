@@ -12,10 +12,13 @@ RUN pnpm build
 
 FROM node:22-bookworm-slim
 WORKDIR /app
+# APP_VERSION 由 CI 传入 commit short sha；界面与 /healthz 显示，便于核对是否拉到最新镜像
+ARG APP_VERSION=dev
 ENV NODE_ENV=production \
     PORT=8080 \
     COMFYUI_URL=http://127.0.0.1:8188 \
-    COMFY_BASE_URL=/comfy
+    COMFY_BASE_URL=/comfy \
+    APP_VERSION=${APP_VERSION}
 COPY --from=build /app/dist ./dist
 COPY data ./data
 COPY thumbs ./thumbs

@@ -169,6 +169,7 @@ function StudioPage() {
   const [showUrlInput, setShowUrlInput] = useState(false)
   const [stitchModalUrl, setStitchModalUrl] = useState<string | null>(null)
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null)
+  const [showAllHistory, setShowAllHistory] = useState(false)
   const [showComfyJsonModal, setShowComfyJsonModal] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [comfyCheck, setComfyCheck] = useState<(ComfyCheckResult & { info?: string }) | null>(null)
@@ -1603,47 +1604,6 @@ function StudioPage() {
               rows={5}
               className="bg-background font-mono text-xs leading-relaxed"
             />
-
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3 py-2.5">
-              <div className="min-w-0">
-                <div className="text-xs font-medium">生成数量</div>
-                <div className="text-[11px] text-muted-foreground">一次提交到队列几张（batch_size 锁 1，每张独立种子）</div>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                {[1, 2, 4, 8, 16, 32].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => updateApiConfig({ imageCount: n })}
-                    className={`h-8 min-w-9 rounded-md border px-2 text-xs font-medium transition-colors ${
-                      (apiConfig.imageCount || 1) === n
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'bg-background hover:bg-accent'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Button
-              onClick={handleGenerate}
-              disabled={!hydrated || !!activeTask || isGenerating || uploadingSlot !== null}
-              className="h-11 w-full text-sm font-semibold"
-            >
-              {isGenerating ? (
-                <>
-                  <LoaderCircleIcon className="size-4 animate-spin" />
-                  生成中…
-                </>
-              ) : (
-                <>
-                  <SparklesIcon className="size-4" />
-                  生成角色图
-                </>
-              )}
-            </Button>
           </Section>
         </div>
 
@@ -1719,6 +1679,49 @@ function StudioPage() {
               )}
             </div>
           </Section>
+
+          {/* 生成数量与生成按钮：放在生成结果下方，写完提示词即可就地生成、就地看结果 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="text-xs font-medium">生成数量</div>
+              <div className="text-[11px] text-muted-foreground">一次提交到队列几张（batch_size 锁 1，每张独立种子）</div>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              {[1, 2, 4, 8, 16, 32].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => updateApiConfig({ imageCount: n })}
+                  className={`h-8 min-w-9 rounded-md border px-2 text-xs font-medium transition-colors ${
+                    (apiConfig.imageCount || 1) === n
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'bg-background hover:bg-accent'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Button
+            onClick={handleGenerate}
+            disabled={!hydrated || !!activeTask || isGenerating || uploadingSlot !== null}
+            className="h-11 w-full text-sm font-semibold"
+          >
+            {isGenerating ? (
+              <>
+                <LoaderCircleIcon className="size-4 animate-spin" />
+                生成中…
+              </>
+            ) : (
+              <>
+                <SparklesIcon className="size-4" />
+                生成角色图
+              </>
+            )}
+          </Button>
+
           {activeTask && <Section title="待确认任务" className="@lg/section:grid-cols-1">
             <p className="break-all text-xs">{activeTask.task ? `任务 ${activeTask.task.promptId}：刷新后查询原任务，不重复提交。` : '提交结果未知或提交前被中断，请核对后端队列；不会自动重试提交。'}</p>
             <div className="flex flex-wrap gap-2">
@@ -1735,13 +1738,20 @@ function StudioPage() {
           title={`生成记录 (${history.length})`}
           className="grid-cols-2 @lg/section:grid-cols-3 @3xl/section:grid-cols-4"
           actions={
-            <Button variant="ghost" size="sm" onClick={clearHistory}>
-              <Trash2Icon className="size-3.5" />
-              清空
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+              {history.length > 30 && (
+                <Button variant="outline" size="sm" onClick={() => setShowAllHistory(true)}>
+                  查看全部 {history.length} 条
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={clearHistory}>
+                <Trash2Icon className="size-3.5" />
+                清空
+              </Button>
+            </div>
           }
         >
-          {history.map((h) => (
+          {history.slice(0, 30).map((h) => (
             <div
               key={h.id}
               className="group flex flex-col justify-between overflow-hidden rounded-2xl bg-background p-2"
@@ -1801,6 +1811,42 @@ function StudioPage() {
       <ReferenceComparisonDialog result={comparisonResult} open={comparisonResult !== null} onOpenChange={(open) => !open && setComparisonResult(null)} />
       {/* 生成结果全屏放大灯箱 */}
       <ImageViewer imageUrl={zoomImageUrl || ''} open={Boolean(zoomImageUrl)} onOpenChange={(open) => !open && setZoomImageUrl(null)} />
+
+      {/* 全部历史生成记录（全量保存，IndexedDB） */}
+      <Dialog open={showAllHistory} onOpenChange={setShowAllHistory}>
+        <DialogContent className="max-h-[90dvh] w-[95vw] max-w-5xl overflow-y-auto p-4 sm:max-w-5xl">
+          <DialogHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pr-8">
+            <DialogTitle className="text-base">全部生成记录（共 {history.length} 条）</DialogTitle>
+            <Button variant="ghost" size="sm" onClick={clearHistory}>
+              <Trash2Icon className="size-3.5" />
+              清空全部
+            </Button>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {history.map((h) => (
+              <div key={h.id} className="group flex flex-col overflow-hidden rounded-2xl bg-muted/30 p-2">
+                <div className="relative aspect-3/4 overflow-hidden rounded-xl bg-muted">
+                  <button type="button" aria-label={`查看记录：${h.recipeSummary}`} onClick={() => { setShowAllHistory(false); setZoomImageUrl(h.imageUrl) }} className="block h-full w-full cursor-zoom-in">
+                    <img src={h.imageUrl} alt={h.recipeSummary} className="h-full w-full object-cover transition group-hover:scale-105" />
+                    <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">{h.model}</span>
+                  </button>
+                  <button type="button" onClick={() => removeHistoryItem(h.id)} title="删除此记录" className="absolute top-1.5 right-1.5 rounded-full bg-black/65 p-1 text-white opacity-85 transition hover:bg-destructive hover:opacity-100">
+                    <XIcon className="size-3" />
+                  </button>
+                </div>
+                <div className="mt-2 space-y-1 px-0.5">
+                  <div className="truncate text-xs font-medium" title={h.recipeSummary}>{h.recipeSummary}</div>
+                  <div className="font-mono text-[10px] text-muted-foreground">{new Date(h.createdAt).toLocaleString('zh-CN')}</div>
+                  <div className="grid grid-cols-2 gap-1 pt-0.5">
+                    <button type="button" onClick={() => { setCustomPrompt(h.prompt); setShowAllHistory(false); toast.success('已恢复该图提示词') }} className="flex h-7 items-center justify-center rounded-lg bg-muted text-[11px] font-medium whitespace-nowrap transition hover:bg-muted/70">复用词</button>
+                    <a href={h.imageUrl} download={`character-${h.id}.png`} className="flex h-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-medium whitespace-nowrap text-primary transition hover:bg-primary/20">下载</a>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 参考拼图独立弹窗（不占用主画布） */}
       <Dialog open={Boolean(stitchModalUrl)} onOpenChange={(o) => !o && setStitchModalUrl(null)}>

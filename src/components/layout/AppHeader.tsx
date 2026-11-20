@@ -20,6 +20,9 @@ import { useStudio } from '@/store/studioStore'
 export function AppHeader() {
   const { recipe, randomizeRecipe, safeMode, toggleSafeMode } = useStudio()
   const qc = useQueryClient()
+  // 构建版本号：由 server.mjs 注入 window.__APP_CONFIG__.version（= 镜像内的 commit sha）
+  const appVersion = (globalThis as unknown as { __APP_CONFIG__?: { version?: string } }).__APP_CONFIG__?.version || 'dev'
+  const shortVersion = appVersion.slice(0, 7)
   const crumbs = useMatches({
     select: (matches) =>
       matches.filter((m) => m.staticData.title).map((m) => ({ title: m.staticData.title!, path: m.pathname })),
@@ -94,6 +97,16 @@ export function AppHeader() {
             )}
           </Link>
         </Button>
+        <button
+          type="button"
+          title={`版本 ${appVersion}（点击复制，用于核对是否已更新到最新镜像）`}
+          onClick={() => {
+            void navigator.clipboard.writeText(appVersion)
+          }}
+          className="hidden shrink-0 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground transition hover:bg-muted @xl/header:inline-block"
+        >
+          v{shortVersion}
+        </button>
         <ThemeToggle />
       </div>
     </header>

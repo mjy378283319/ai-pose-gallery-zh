@@ -576,7 +576,7 @@ function serveIndex(res) {
       res.end('dist/index.html missing')
       return
     }
-    const config = JSON.stringify({ comfyBaseUrl: COMFY_BASE_URL }).replace(/</g, '\\u003c')
+    const config = JSON.stringify({ comfyBaseUrl: COMFY_BASE_URL, version: process.env.APP_VERSION || 'dev' }).replace(/</g, '\\u003c')
     const injected = html.replace('</head>', `<script>window.__APP_CONFIG__=${config};</script></head>`)
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' })
     res.end(injected)
@@ -635,7 +635,7 @@ const server = http.createServer((req, res) => {
   const p = url.pathname
   if (p === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ ok: true, comfyui: upstreamOrigin, comfyBaseUrl: COMFY_BASE_URL, userdata: USERDATA_DIR }))
+    res.end(JSON.stringify({ ok: true, comfyui: upstreamOrigin, comfyBaseUrl: COMFY_BASE_URL, userdata: USERDATA_DIR, version: process.env.APP_VERSION || 'dev' }))
     return
   }
   if (p === '/api/proxy') return void handleApiProxy(req, res)

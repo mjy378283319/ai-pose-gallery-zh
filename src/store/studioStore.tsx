@@ -620,7 +620,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     return write
   }
   const addHistory = (item: Omit<GenerationHistoryItem, 'id' | 'createdAt'>) => {
-    void persistHistory((current) => [{ ...item, id: crypto.randomUUID(), createdAt: Date.now() }, ...current].slice(0, 30)).catch(() => toast.error('历史记录保存失败'))
+    // 全量保存：不再截断为 30 条，历史写入 IndexedDB（浏览器配额通常数百 MB～数 GB）。
+    void persistHistory((current) => [{ ...item, id: crypto.randomUUID(), createdAt: Date.now() }, ...current]).catch(() => toast.error('历史记录保存失败，可能浏览器存储已满，请清理旧记录'))
   }
   const removeHistoryItem = (id: string) => {
     void persistHistory((current) => current.filter((x) => x.id !== id)).then(() => toast.success('已删除该条记录')).catch(() => toast.error('删除失败'))
@@ -652,7 +653,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     const id = record.task ? `comfy:${record.task.baseUrl}:${record.task.promptId}` : crypto.randomUUID()
     await persistHistory((current) => {
       signal.throwIfAborted()
-      return [{ id, createdAt: Date.now(), imageUrl, provider: result.providerUsed, model: result.modelUsed, prompt: record.prompt, recipeSummary: record.summary, snapshot: record.snapshot }, ...current.filter((x) => x.id !== id)].slice(0, 30)
+      return [{ id, createdAt: Date.now(), imageUrl, provider: result.providerUsed, model: result.modelUsed, prompt: record.prompt, recipeSummary: record.summary, snapshot: record.snapshot }, ...current.filter((x) => x.id !== id)]
     })
     signal.throwIfAborted()
     await saveActive(null)
