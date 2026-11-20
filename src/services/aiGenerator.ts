@@ -593,7 +593,7 @@ export const COMFYUI_WORKFLOW_TEMPLATES: Record<
     defaults: { promptNodeId: '3', portraitNodeId: 'none', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },
   zimage_int8_img2img: {
-    label: '② 参考图 + 文字生图（Z-Image 底稿重绘）',
+    label: '② 图生图（底稿重绘 · Z-Image）',
     workflow: zImageInt8Img2ImgWorkflow as ComfyWorkflow,
     defaults: { promptNodeId: '3', portraitNodeId: '10', costumeNodeId: 'none', poseNodeId: 'none', stitchedNodeId: 'none' },
   },

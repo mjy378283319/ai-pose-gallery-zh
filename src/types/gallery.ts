@@ -178,6 +178,8 @@ export interface GenerationHistoryItem {
   prompt: string
   imageUrl: string
   recipeSummary: string
+  /** 用户自定义的关键词标签，便于按标签检索好图 */
+  tags?: string[]
   snapshot?: GenerationSnapshot
 }
 

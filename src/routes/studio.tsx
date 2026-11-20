@@ -882,7 +882,7 @@ function StudioPage() {
               <summary className="cursor-pointer font-medium">📖 这里都是干什么用的？点开看说明</summary>
               <div className="mt-2 space-y-1.5 text-muted-foreground">
                 <p><strong className="text-foreground">接口协议</strong>：用谁来生成图片。本机 ComfyUI（B 房显卡，免费、走 localhost 回环、单位网络看不到内容）；其他是在线 API（要 Key、按量付费）。你目前用的是本机 ComfyUI。</p>
-                <p><strong className="text-foreground">工作流模板</strong>：决定"怎么生成"，共 5 个可用模板。① 提示词直接生图＝只写文字就出图（默认，无需参考图）；② 参考图 + 文字生图＝放一张底稿图，写文字把它重绘成新图；③ 两图融合（Qwen 2.1，推荐）＝人像锁脸 + 姿势锁动作，服装靠文字描述，实测最稳；④ 三图融合（Qwen 2.1）＝额外加服装图，但实测服装图基本无效、还可能带偏，仅在要参考独特款式时用；⑤ 成品层 2K 放大 + FaceDetailer 重绘。</p>
+                <p><strong className="text-foreground">工作流模板</strong>：决定"怎么生成"，共 5 个可用模板。① 提示词直接生图＝只写文字就出图（默认，无需参考图）；② 图生图（底稿重绘）＝放一张底稿图，写文字把它重绘成新图；③ 两图融合（Qwen 2.1，推荐）＝人像锁脸 + 姿势锁动作，服装靠文字描述，实测最稳；④ 三图融合（Qwen 2.1）＝额外加服装图，但实测服装图基本无效、还可能带偏，仅在要参考独特款式时用；⑤ 成品层 2K 放大 + FaceDetailer 重绘。</p>
                 <p><strong className="text-foreground">画风预设</strong>：自动往提示词里加"写实/动漫/油画"等风格词，省得每次手打。</p>
                 <p><strong className="text-foreground">穿搭写真预设</strong>：在提示词框右上角"穿搭写真预设"下拉里，一键填入巫女/洛丽塔/汉服/JK 等常用服装模板，再按实际把 [ ] 里的内容替换掉即可。实测模型看不懂平铺服装图，服装细节全靠文字逐项点名，所以这个预设是最省事且效果最稳的用法。</p>
                 <p><strong className="text-foreground">人像/服装/姿势/提示词节点</strong>：把界面上的图和文字"接到"工作流里对应的位置。用内置模板时已自动配好，不用改；只有导入自己的工作流才需要手动对。</p>
