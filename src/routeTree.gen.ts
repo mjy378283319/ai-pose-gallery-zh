@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CostumesRouteImport } from './routes/costumes'
 import { Route as GuideRouteImport } from './routes/guide'
+import { Route as HistoryRouteImport } from './routes/history'
 import { Route as MineRouteImport } from './routes/mine'
 import { Route as PortraitsRouteImport } from './routes/portraits'
 import { Route as PosesRouteImport } from './routes/poses'
@@ -28,14 +29,19 @@ const CostumesRoute = CostumesRouteImport.update({
   path: '/costumes',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MineRoute = MineRouteImport.update({
-  id: '/mine',
-  path: '/mine',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const GuideRoute = GuideRouteImport.update({
   id: '/guide',
   path: '/guide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HistoryRoute = HistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MineRoute = MineRouteImport.update({
+  id: '/mine',
+  path: '/mine',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PortraitsRoute = PortraitsRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
+  '/history': typeof HistoryRoute
   '/mine': typeof MineRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
+  '/history': typeof HistoryRoute
   '/mine': typeof MineRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/costumes': typeof CostumesRoute
   '/guide': typeof GuideRoute
+  '/history': typeof HistoryRoute
   '/mine': typeof MineRoute
   '/portraits': typeof PortraitsRoute
   '/poses': typeof PosesRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/costumes'
     | '/guide'
+    | '/history'
     | '/mine'
     | '/portraits'
     | '/poses'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/costumes'
     | '/guide'
+    | '/history'
     | '/mine'
     | '/portraits'
     | '/poses'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/costumes'
     | '/guide'
+    | '/history'
     | '/mine'
     | '/portraits'
     | '/poses'
@@ -126,8 +138,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CostumesRoute: typeof CostumesRoute
-  MineRoute: typeof MineRoute
   GuideRoute: typeof GuideRoute
+  HistoryRoute: typeof HistoryRoute
+  MineRoute: typeof MineRoute
   PortraitsRoute: typeof PortraitsRoute
   PosesRoute: typeof PosesRoute
   SettingsRoute: typeof SettingsRoute
@@ -150,18 +163,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CostumesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/mine': {
-      id: '/mine'
-      path: '/mine'
-      fullPath: '/mine'
-      preLoaderRoute: typeof MineRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/guide': {
       id: '/guide'
       path: '/guide'
       fullPath: '/guide'
       preLoaderRoute: typeof GuideRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/history': {
+      id: '/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof HistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mine': {
+      id: '/mine'
+      path: '/mine'
+      fullPath: '/mine'
+      preLoaderRoute: typeof MineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/portraits': {
@@ -198,8 +218,9 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CostumesRoute: CostumesRoute,
-  MineRoute: MineRoute,
   GuideRoute: GuideRoute,
+  HistoryRoute: HistoryRoute,
+  MineRoute: MineRoute,
   PortraitsRoute: PortraitsRoute,
   PosesRoute: PosesRoute,
   SettingsRoute: SettingsRoute,
