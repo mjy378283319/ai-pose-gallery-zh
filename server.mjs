@@ -297,8 +297,19 @@ async function handleUserdataList(res) {
     }
     files.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 
+    // 独立文字：texts/*.txt（与图片字幕彻底分离）
+    const textEntries = await readDirSafe(TEXT_DIR())
+    const textFiles = textEntries
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.txt'))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    // 文件名规范化：与下方 matchedImg 一致。同名配图只作为文字项的缩略图，
+    // 不再单列为独立图片项，避免素材库出现"纯图 + 图文"两条重复记录。
+    const normLabel = (s) => s.replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
+    const textLabels = new Set(textFiles.map((e) => normLabel(e.name.replace(/\.txt$/i, ''))))
+
     const items = []
     for (const f of files) {
+      if (textLabels.has(normLabel(f.name))) continue // 跳过文字项的配图
       const caption = await new Promise((resolve) => captionFor(f.name, captions, resolve))
       let st = null
       try { st = await fs.promises.stat(f.full) } catch {}
@@ -312,11 +323,6 @@ async function handleUserdataList(res) {
       })
     }
 
-    // 独立文字：texts/*.txt（与图片字幕彻底分离）
-    const textEntries = await readDirSafe(TEXT_DIR())
-    const textFiles = textEntries
-      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.txt'))
-      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
     for (const e of textFiles) {
       const full = path.join(TEXT_DIR(), e.name)
       const label = e.name.replace(/\.txt$/i, '')
@@ -324,8 +330,6 @@ async function handleUserdataList(res) {
       try { text = (await fs.promises.readFile(full, 'utf8')).trim() } catch {}
       try { st = await fs.promises.stat(full) } catch {}
       // 文字项可附加一张同名配图（images/<label>.<ext>），前端据此显示缩略图并支持编辑
-      // 文件名经 safeUserName 清洗（空格->下划线），label 也做同样规范化后再比对
-      const normLabel = (s) => s.replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
       const matchedImg = files.find((f) => normLabel(f.name) === normLabel(label))
       items.push({
         kind: 'text',

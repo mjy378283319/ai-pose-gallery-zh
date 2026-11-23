@@ -248,6 +248,8 @@ function MinePage() {
       const out = (await res.json()) as { ok?: boolean; name?: string; error?: { message?: string } }
       if (!res.ok || !out.ok) throw new Error(out.error?.message || '保存失败')
       if (textImage) {
+        // 配图仍要存盘（作为文字项的同名附图供缩略图用）；服务端 list 会跳过
+        // 与文字同名的图片，不再单列为独立图片项，避免素材库出现重复两条。
         const ext = textImage.name.replace(/^.*\./, '').toLowerCase() || 'png'
         const data = await toBase64(textImage)
         const ir = await fetch('/userdata/upload', {
