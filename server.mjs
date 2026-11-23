@@ -146,8 +146,12 @@ function handleBridgePoll(req, res, url) {
     for (const [id, t] of bridgeTasks) {
       if (t.status === 'pending') {
         t.status = 'processing'
+        if (t.kind === 'command') {
+          return sendJson(res, 200, { id, kind: 'command', action: t.action, args: t.args })
+        }
         return sendJson(res, 200, {
           id,
+          kind: 'http',
           method: t.method,
           path: t.path,
           headers: t.headers,
@@ -178,6 +182,41 @@ async function handleBridgeResult(req, res, url) {
   }
   task.status = 'done'
   sendJson(res, 200, { ok: true })
+}
+
+/** 服务控制指令：前端发 action → 作为 command 任务入队 → agent 执行 → 回传 */
+async function handleBridgeCommand(req, res, url) {
+  if (!BRIDGE_ENABLED) return sendJson(res, 503, { ok: false, error: 'bridge disabled' })
+  if (!isAuthed(req)) return sendUnauthorized(res) // 控制指令要求应用登录态
+  let raw
+  try { raw = await readBody(req, 64 * 1024) } catch { return json(res, 413, 'body too large') }
+  let payload
+  try { payload = JSON.parse(raw.toString('utf8')) } catch { return json(res, 400, 'invalid json') }
+  const action = String(payload.action || '')
+  const allowed = new Set(['status', 'comfy_start', 'comfy_stop', 'comfy_restart', 'agent_pause', 'agent_resume', 'frpc_start', 'frpc_stop', 'logs'])
+  if (!allowed.has(action)) return sendJson(res, 400, { ok: false, error: 'unknown action' })
+  const id = `c${Date.now().toString(36)}${(bridgeSeq++).toString(36)}`
+  bridgeTasks.set(id, {
+    kind: 'command', action, args: payload.args || {},
+    status: 'pending', result: null, createdAt: Date.now(),
+  })
+  const deadline = Date.now() + BRIDGE_TIMEOUT_MS
+  const wait = () => {
+    const t = bridgeTasks.get(id)
+    if (t?.status === 'done' && t.result) {
+      bridgeTasks.delete(id)
+      const text = t.result.body.toString('utf8')
+      try { sendJson(res, 200, JSON.parse(text)) }
+      catch { sendJson(res, 200, { ok: true, raw: text }) }
+      return
+    }
+    if (Date.now() > deadline) {
+      bridgeTasks.delete(id)
+      return sendJson(res, 503, { ok: false, error: 'agent 未响应' })
+    }
+    setTimeout(wait, 250)
+  }
+  wait()
 }
 
 /** 前端 /comfy 请求 → 提交桥接任务并等待结果 */
@@ -825,6 +864,7 @@ const server = http.createServer((req, res) => {
   // 桥接 agent 接口：用 BRIDGE_TOKEN 鉴权，不走 cookie（agent 在单位机，无登录态）
   if (p === '/api/bridge/poll' && req.method === 'GET') return void handleBridgePoll(req, res, url)
   if (p === '/api/bridge/result' && req.method === 'POST') return void handleBridgeResult(req, res, url)
+  if (p === '/api/bridge/command' && req.method === 'POST') return void handleBridgeCommand(req, res, url)
   if (p === '/api/bridge/status' && req.method === 'GET') {
     if (!BRIDGE_ENABLED) return sendJson(res, 200, { enabled: false })
     if (!bridgeTokenOk(req, url)) return sendJson(res, 401, { error: 'bad token' })
