@@ -627,6 +627,35 @@ async function handleUserdataTextDelete(req, res, url) {
   }
 }
 
+/** 删除图片素材：删图片本体 + 同名 captions 条目（若有），不碰 texts/ 独立文字 */
+async function handleUserdataImageDelete(req, res, url) {
+  const raw = url.searchParams.get('name') || ''
+  let name
+  try { name = decodeURIComponent(raw) } catch { return json(res, 400, '文件名无效') }
+  if (!name || name.includes('/') || name.includes('\\') || name.startsWith('.')) return json(res, 400, '文件名无效')
+  // 与 handleUserdataFile 一致的候选路径：images/ 子目录优先，其次根目录
+  const candidates = [safePath(USERDATA_DIR, path.join('images', name)), safePath(USERDATA_DIR, name)].filter(Boolean)
+  const target = candidates.find((c) => fs.existsSync(c))
+  if (!target) return json(res, 404, '图片不存在')
+  try {
+    await fs.promises.unlink(target)
+    // 清理 captions.json 里同名条目（best-effort）
+    const capFile = safePath(USERDATA_DIR, 'captions.json')
+    if (capFile && fs.existsSync(capFile)) {
+      try {
+        const caps = JSON.parse(await fs.promises.readFile(capFile, 'utf8'))
+        if (caps && Object.prototype.hasOwnProperty.call(caps, name)) {
+          delete caps[name]
+          await fs.promises.writeFile(capFile, JSON.stringify(caps, null, 2), 'utf8')
+        }
+      } catch {}
+    }
+    sendJson(res, 200, { ok: true, name })
+  } catch (err) {
+    json(res, 500, `删除失败：${err instanceof Error ? err.message : err}`)
+  }
+}
+
 // 重命名素材：图片项改文件名 + captions key；文字项改 txt 名 + 同名配图名。
 // 用于「我的素材」编辑弹窗里的标题修改。
 async function handleUserdataRename(req, res) {
@@ -900,6 +929,10 @@ const server = http.createServer((req, res) => {
   if (p === '/userdata/text') {
     if (req.method === 'POST') return void handleUserdataTextSave(req, res)
     if (req.method === 'DELETE') return void handleUserdataTextDelete(req, res, url)
+    return json(res, 405, 'Method Not Allowed')
+  }
+  if (p === '/userdata/image') {
+    if (req.method === 'DELETE') return void handleUserdataImageDelete(req, res, url)
     return json(res, 405, 'Method Not Allowed')
   }
   if (p.startsWith('/userdata/img/') || p.startsWith('/userdata/caption/')) {

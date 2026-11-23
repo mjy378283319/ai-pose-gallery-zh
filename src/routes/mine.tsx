@@ -286,10 +286,26 @@ function MinePage() {
   }
 
   const deleteTextItem = async (item: MineItem) => {
+    if (!window.confirm(`确定删除这条图文吗？\n\n${item.label || item.name}\n\n此操作不可恢复。`)) return
     const res = await fetch(`/userdata/text?name=${encodeURIComponent(item.name)}`, { method: 'DELETE' })
     const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
     if (!res.ok || !out.ok) return toast.error(out.error?.message || '删除失败')
+    // 同名配图一并删除（best-effort，删文字已成功即可）
+    if (item.imageName) {
+      void fetch(`/userdata/image?name=${encodeURIComponent(item.imageName)}`, { method: 'DELETE' })
+    }
     toast.success('已删除')
+    void load()
+  }
+
+  const deleteImageItem = async (item: MineItem) => {
+    const target = item.imageName || item.name
+    if (!window.confirm(`确定删除这张图片吗？\n\n${target}\n\n此操作不可恢复。`)) return
+    const res = await fetch(`/userdata/image?name=${encodeURIComponent(target)}`, { method: 'DELETE' })
+    const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
+    if (!res.ok || !out.ok) return toast.error(out.error?.message || '删除失败')
+    toast.success('图片已删除')
+    setAdded((prev) => { const n = new Set(prev); n.delete(item.name); return n })
     void load()
   }
 
@@ -496,8 +512,12 @@ function MinePage() {
                         <CopyIcon className="size-3.5" />
                       </Button>
                     )}
-                    {isText && (
-                      <Button size="sm" variant="ghost" className="px-2 text-destructive" title="删除" onClick={() => void deleteTextItem(item)}>
+                    {isText ? (
+                      <Button size="sm" variant="ghost" className="px-2 text-destructive" title="删除图文" onClick={() => void deleteTextItem(item)}>
+                        <Trash2Icon className="size-3.5" />
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" className="px-2 text-destructive" title="删除图片" onClick={() => void deleteImageItem(item)}>
                         <Trash2Icon className="size-3.5" />
                       </Button>
                     )}
