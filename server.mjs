@@ -19,6 +19,7 @@
  */
 import http from 'node:http'
 import https from 'node:https'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +38,80 @@ const upstreamAuth = upstream.username
   : ''
 const upstreamOrigin = upstream.origin
 const upstreamHttp = upstream.protocol === 'https:' ? https : http
+
+/* ── 应用登录（方案B）：APP_PASSWORD 为空则不启用，保持本地开发无感 ── */
+const APP_PASSWORD = (process.env.APP_PASSWORD || '').trim()
+const AUTH_ENABLED = APP_PASSWORD.length > 0
+const AUTH_COOKIE = 'pose_auth'
+// 用密码本身派生签名密钥（改密码后旧 cookie 自动失效）
+const AUTH_SECRET = crypto.createHash('sha256').update('pose-auth:' + APP_PASSWORD).digest()
+const AUTH_SIGN = (payload) => crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('base64url')
+const AUTH_TOKEN = (days) => {
+  const exp = Date.now() + days * 86400 * 1000
+  const payload = String(exp)
+  return payload + '.' + AUTH_SIGN(payload)
+}
+const AUTH_VERIFY = (token) => {
+  if (!token || typeof token !== 'string') return false
+  const i = token.lastIndexOf('.')
+  if (i < 1) return false
+  const payload = token.slice(0, i), sig = token.slice(i + 1)
+  const expect = AUTH_SIGN(payload)
+  if (sig.length !== expect.length) return false
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return false
+  return Number(payload) > Date.now()
+}
+function authCookie(req) {
+  const raw = req.headers.cookie || ''
+  for (const part of raw.split(';')) {
+    const [k, ...v] = part.trim().split('=')
+    if (k === AUTH_COOKIE) return v.join('=')
+  }
+  return ''
+}
+function isAuthed(req) { return !AUTH_ENABLED || AUTH_VERIFY(authCookie(req)) }
+function sendUnauthorized(res) {
+  const body = JSON.stringify({ error: 'unauthorized', message: '请先登录' })
+  res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' })
+  res.end(body)
+}
+function handleAuthApi(req, res, p, url) {
+  if (p === '/api/auth/state' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ enabled: AUTH_ENABLED, authenticated: isAuthed(req) }))
+    return true
+  }
+  if (p === '/api/auth/login' && req.method === 'POST') {
+    let raw = ''
+    req.on('data', (c) => { raw += c; if (raw.length > 4096) req.destroy() })
+    req.on('end', () => {
+      let body = {}
+      try { body = JSON.parse(raw || '{}') } catch {}
+      const ok = AUTH_ENABLED && typeof body.password === 'string' && body.password === APP_PASSWORD
+      if (!ok) {
+        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'bad_password', message: '密码错误' }))
+        return
+      }
+      const days = body.remember === false ? 1 : 30
+      const maxAge = body.remember === false ? undefined : days * 86400
+      const token = AUTH_TOKEN(days)
+      const attrs = [`${AUTH_COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax']
+      if (maxAge) attrs.push(`Max-Age=${maxAge}`)
+      // HTTPS 反代下加 Secure；本地 http 访问时不加，否则登录态丢失
+      if ((req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https') attrs.push('Secure')
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': attrs.join('; ') })
+      res.end(JSON.stringify({ ok: true }))
+    })
+    return true
+  }
+  if (p === '/api/auth/logout' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` })
+    res.end(JSON.stringify({ ok: true }))
+    return true
+  }
+  return false
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -642,6 +717,13 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, comfyui: upstreamOrigin, comfyBaseUrl: COMFY_BASE_URL, userdata: USERDATA_DIR, version: process.env.APP_VERSION || 'dev' }))
     return
   }
+  // 登录接口本身必须匿名可达
+  if (p.startsWith('/api/auth/')) {
+    if (handleAuthApi(req, res, p, url)) return
+  }
+  // 数据/代理接口需要登录；静态资源(index.html/assets/img 等)放行以便登录页渲染
+  const isDataApi = p === '/api/proxy' || p.startsWith('/comfy') || p.startsWith('/userdata')
+  if (isDataApi && !isAuthed(req)) return sendUnauthorized(res)
   if (p === '/api/proxy') return void handleApiProxy(req, res)
   if (p === '/comfy' || p.startsWith('/comfy/')) {
     const rest = p.replace(/^\/comfy/, '') || '/'
@@ -684,6 +766,7 @@ server.on('upgrade', (req, clientSocket, head) => {
     clientSocket.destroy()
     return
   }
+  if (!isAuthed(req)) { clientSocket.destroy(); return }
   const rest = p.replace(/^\/comfy/, '') || '/'
   handleComfyUpgrade(req, clientSocket, head, `${rest}${url.search}`)
 })

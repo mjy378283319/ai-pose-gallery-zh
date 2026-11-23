@@ -3,6 +3,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider } from '@/components/theme/ThemeProvider'
+import { AuthGate } from '@/components/auth/AuthGate'
 import { StudioProvider } from '@/store/studioStore'
 import { routeTree } from './routeTree.gen'
 import './index.css'
@@ -38,11 +39,13 @@ declare module '@tanstack/react-router' {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <StudioProvider>
-          <RouterProvider router={router} />
-        </StudioProvider>
-      </QueryClientProvider>
+      <AuthGate>
+        <QueryClientProvider client={queryClient}>
+          <StudioProvider>
+            <RouterProvider router={router} />
+          </StudioProvider>
+        </QueryClientProvider>
+      </AuthGate>
     </ThemeProvider>
   </StrictMode>
 )

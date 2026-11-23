@@ -14,6 +14,8 @@ services:
       # 浏览器侧统一走同源 /comfy，由容器内 server.mjs 反代到 COMFYUI_URL
       COMFY_BASE_URL: "${COMFY_BASE_URL:-/comfy}"
       PROXY_ALLOWED_ORIGINS: "${PROXY_ALLOWED_ORIGINS:-}"
+      # 公网登录密码；留空不启用。改密码后旧登录态自动失效。
+      APP_PASSWORD: "${APP_PASSWORD:-}"
       TZ: "${TZ:-Asia/Shanghai}"
       # 用户自有素材挂载点（只读使用；目录本身由宿主机提供）
       USERDATA_DIR: "/app/userdata"
