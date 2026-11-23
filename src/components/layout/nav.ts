@@ -6,6 +6,7 @@ import {
   HistoryIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
+  PlusIcon,
   PersonStandingIcon,
   ShirtIcon,
   SparklesIcon,
@@ -38,10 +39,11 @@ export const navGroups: NavGroup[] = [
     label: '三大参考图库',
     items: [
       { title: '我的素材', to: '/mine', icon: FolderOpenIcon },
+      { title: '添加素材', to: '/add', icon: PlusIcon },
+      { title: '生成历史', to: '/history', icon: HistoryIcon },
       { title: '动作姿势库', to: '/poses', icon: PersonStandingIcon, badge: '1,439' },
       { title: '服装穿搭库', to: '/costumes', icon: ShirtIcon, badge: '3,224' },
       { title: '人像颜值库', to: '/portraits', icon: UserRoundIcon, badge: '1,499' },
-      { title: '生成历史', to: '/history', icon: HistoryIcon },
     ],
   },
   {
