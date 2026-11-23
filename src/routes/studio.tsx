@@ -12,6 +12,7 @@ import {
   DicesIcon,
   DownloadIcon,
   FileUpIcon,
+  HistoryIcon,
   ImagePlusIcon,
   KeyRoundIcon,
   LayoutGridIcon,
@@ -167,6 +168,7 @@ function StudioPage() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [extraUrlInput, setExtraUrlInput] = useState('')
   const [showUrlInput, setShowUrlInput] = useState(false)
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false)
   const [stitchModalUrl, setStitchModalUrl] = useState<string | null>(null)
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null)
   const [showAllHistory, setShowAllHistory] = useState(false)
@@ -833,18 +835,67 @@ function StudioPage() {
                       : '添加附加参考图：点击上传、拖拽图片至此，或直接按 Ctrl+V / ⌘V 粘贴'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowUrlInput((s) => !s)
-                  }}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
-                >
-                  <LinkIcon className="size-3" />
-                  输入图片 URL
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowHistoryPicker((s) => !s)
+                      setShowUrlInput(false)
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                    title="从生成历史里选一张已生成的图作为参考"
+                  >
+                    <HistoryIcon className="size-3" />
+                    生成历史选图
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowUrlInput((s) => !s)
+                      setShowHistoryPicker(false)
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                  >
+                    <LinkIcon className="size-3" />
+                    输入图片 URL
+                  </button>
+                </div>
               </div>
+
+              {showHistoryPicker && (
+                <div className="rounded-xl border bg-muted/30 p-2.5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      从生成历史选图（共 {history.length} 张，点击即加入参考）
+                    </span>
+                    <button type="button" onClick={() => setShowHistoryPicker(false)} className="rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="关闭">
+                      <XIcon className="size-3.5" />
+                    </button>
+                  </div>
+                  {history.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-muted-foreground">还没有生成记录，先去生成一张吧</p>
+                  ) : (
+                    <div className="grid max-h-52 grid-cols-4 gap-1.5 overflow-y-auto sm:grid-cols-6">
+                      {history.map((h) => (
+                        <button
+                          key={h.id}
+                          type="button"
+                          onClick={() => {
+                            addExtraImage({ name: h.recipeSummary || h.prompt.slice(0, 20) || '历史生成图', url: h.imageUrl })
+                            setShowHistoryPicker(false)
+                          }}
+                          title={h.recipeSummary || h.prompt}
+                          className="group relative aspect-square overflow-hidden rounded-md border bg-background transition hover:ring-2 hover:ring-primary"
+                        >
+                          <img src={h.imageUrl} alt={h.recipeSummary || '历史生成图'} className="size-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {showUrlInput && (
                 <div className="flex items-center gap-2">
