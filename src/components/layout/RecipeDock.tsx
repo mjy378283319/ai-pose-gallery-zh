@@ -11,7 +11,7 @@ import { useStudio } from '@/store/studioStore'
 
 export function RecipeDock() {
   const { pathname } = useLocation()
-  const { recipe, apiConfig, isGenerating, setPortrait, setCostume, setPose, toggleRecipePoseDepth, clearRecipe, randomizeRecipe } = useStudio()
+  const { recipe, apiConfig, isGenerating, setPortrait, setCostume, setPose, toggleRecipePoseDepth, clearRecipe, randomizeRecipe, startGeneration } = useStudio()
   const qc = useQueryClient()
   const extraCount = (recipe.extraImages || []).length
   const workflowImages = apiConfig.activeProvider === 'comfyui' && recipe.workflowImagesIdentity === workflowIdentity(apiConfig.comfyuiParams.workflowJson) ? Object.values(recipe.workflowImages || {}) : []
@@ -166,20 +166,24 @@ export function RecipeDock() {
               </Button>
             </>
           )}
-          <Button size="sm" className="h-8 px-3 text-xs" asChild>
-            <Link to="/studio">
-              {isGenerating ? (
-                <>
-                  <LoaderCircleIcon className="size-3.5 animate-spin" />
-                  生成中…
-                </>
-              ) : (
-                <>
-                  <SparklesIcon className="size-3.5" />
-                  合成 ({count})
-                </>
-              )}
-            </Link>
+          <Button
+            size="sm"
+            className="h-8 px-3 text-xs"
+            disabled={isGenerating}
+            onClick={() => void startGeneration()}
+            title="直接开始生成，无需跳转到合成台"
+          >
+            {isGenerating ? (
+              <>
+                <LoaderCircleIcon className="size-3.5 animate-spin" />
+                生成中…
+              </>
+            ) : (
+              <>
+                <SparklesIcon className="size-3.5" />
+                合成 ({count})
+              </>
+            )}
           </Button>
         </div>
       </div>
