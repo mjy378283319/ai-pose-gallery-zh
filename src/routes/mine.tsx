@@ -415,7 +415,7 @@ function MinePage() {
             </Button>
             {textImage && (
               <div className="relative overflow-hidden rounded-lg border">
-                <img src={URL.createObjectURL(textImage)} alt="配图预览" className="h-32 w-full object-cover" />
+                <img src={URL.createObjectURL(textImage)} alt="配图预览" className="h-32 w-full object-contain" />
                 <button type="button" onClick={() => { setTextImage(null); if (textImageRef.current) textImageRef.current.value = '' }} className="absolute top-1 right-1 rounded bg-black/60 p-1 text-white"><XIcon className="size-3.5" /></button>
               </div>
             )}
@@ -462,8 +462,8 @@ function MinePage() {
             return (
               <div key={item.name} className="overflow-hidden rounded-xl border bg-card">
                 {hasImg ? (
-                  <div className="relative aspect-square bg-muted">
-                    <img src={item.url || undefined} alt={item.caption || item.label || item.name} loading="lazy" className="size-full object-cover" />
+                  <div className="relative aspect-square bg-muted/60">
+                    <img src={item.url || undefined} alt={item.caption || item.label || item.name} loading="lazy" className="size-full object-contain" />
                     {isText && <span className="absolute top-1 left-1 rounded bg-primary/80 px-1.5 py-0.5 text-[10px] text-primary-foreground">图文</span>}
                     {!isText && <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{formatSize(item.size)}</div>}
                   </div>
@@ -531,9 +531,9 @@ function MinePage() {
                 <div className="grid gap-3 sm:grid-cols-[200px_minmax(0,1fr)]">
                   <div className="flex min-h-36 items-center justify-center overflow-hidden rounded-xl border bg-muted/30">
                     {edit.imageFile ? (
-                      <img src={URL.createObjectURL(edit.imageFile)} alt="新图预览" className="h-40 w-full object-cover" />
+                      <img src={URL.createObjectURL(edit.imageFile)} alt="新图预览" className="h-40 w-full object-contain" />
                     ) : edit.item.url ? (
-                      <img src={edit.item.url} alt="当前图片" className="h-40 w-full object-cover" />
+                      <img src={edit.item.url} alt="当前图片" className="h-40 w-full object-contain" />
                     ) : (
                       <span className="text-xs text-muted-foreground">暂无图片</span>
                     )}
@@ -605,7 +605,7 @@ function MinePage() {
                     className="group overflow-hidden rounded-xl border text-left transition hover:ring-2 hover:ring-primary"
                     title={h.prompt}
                   >
-                    <img src={h.imageUrl} alt="生成记录" className="h-32 w-full object-cover" />
+                    <img src={h.imageUrl} alt="生成记录" className="h-32 w-full object-contain" />
                     <div className="p-1.5 text-[10px] text-muted-foreground">
                       {new Date(h.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
