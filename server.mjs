@@ -113,6 +113,107 @@ function handleAuthApi(req, res, p, url) {
   return false
 }
 
+/* ── HTTP 轮询桥接（方案：B 房 agent 主动出站拉取任务，无需 frp 隧道）──
+ * 启用条件：BRIDGE_TOKEN 非空。agent 用它鉴权；前端 /comfy/* 请求被转成
+ * 桥接任务，agent 轮询拿走→在本地调 127.0.0.1:8188→回传结果。
+ * 任务只在内存，短时存在；agent 离线时请求会超时返回 503。
+ */
+const BRIDGE_TOKEN = (process.env.BRIDGE_TOKEN || '').trim()
+const BRIDGE_ENABLED = BRIDGE_TOKEN.length > 0
+const BRIDGE_TIMEOUT_MS = 110000
+const bridgeTasks = new Map() // taskId → {method,path,headers,body,status,result,createdAt,done}
+let bridgeSeq = 0
+
+function bridgeTokenOk(req, url) {
+  const h = req.headers['x-bridge-token']
+  const q = url.searchParams.get('token')
+  return BRIDGE_ENABLED && (h === BRIDGE_TOKEN || q === BRIDGE_TOKEN)
+}
+function bridgeGC() {
+  const now = Date.now()
+  for (const [id, t] of bridgeTasks) {
+    if (now - t.createdAt > 5 * 60 * 1000) bridgeTasks.delete(id)
+  }
+}
+setInterval(bridgeGC, 60 * 1000).unref?.()
+
+/** agent 轮询：拿一个 pending 任务（长轮询最多 25s） */
+function handleBridgePoll(req, res, url) {
+  if (!BRIDGE_ENABLED) return sendJson(res, 503, { error: 'bridge disabled' })
+  if (!bridgeTokenOk(req, url)) return sendJson(res, 401, { error: 'bad token' })
+  const started = Date.now()
+  const tryPick = () => {
+    for (const [id, t] of bridgeTasks) {
+      if (t.status === 'pending') {
+        t.status = 'processing'
+        return sendJson(res, 200, {
+          id,
+          method: t.method,
+          path: t.path,
+          headers: t.headers,
+          body: t.body ? t.body.toString('base64') : '', // base64 二进制安全
+        })
+      }
+    }
+    if (Date.now() - started > 25000) return sendJson(res, 200, { id: null })
+    setTimeout(tryPick, 500)
+  }
+  tryPick()
+}
+
+/** agent 回传结果 */
+async function handleBridgeResult(req, res, url) {
+  if (!BRIDGE_ENABLED) return sendJson(res, 503, { error: 'bridge disabled' })
+  if (!bridgeTokenOk(req, url)) return sendJson(res, 401, { error: 'bad token' })
+  let raw
+  try { raw = await readBody(req, 64 * 1024 * 1024) } catch { return json(res, 413, 'result too large') }
+  let payload
+  try { payload = JSON.parse(raw.toString('utf8')) } catch { return json(res, 400, 'invalid json') }
+  const task = bridgeTasks.get(payload.id)
+  if (!task) return sendJson(res, 404, { error: 'task not found' })
+  task.result = {
+    status: Number(payload.status) || 200,
+    headers: payload.headers || {},
+    body: payload.body ? Buffer.from(payload.body, 'base64') : Buffer.alloc(0),
+  }
+  task.status = 'done'
+  sendJson(res, 200, { ok: true })
+}
+
+/** 前端 /comfy 请求 → 提交桥接任务并等待结果 */
+async function handleBridgeComfy(req, res, targetPath) {
+  let body
+  try { body = await readBody(req, 64 * 1024 * 1024) } catch { return json(res, 413, 'Request body too large') }
+  const headers = { ...req.headers }
+  delete headers.origin
+  delete headers['x-forwarded-for']
+  delete headers['x-bridge-token']
+  const id = `b${Date.now().toString(36)}${(bridgeSeq++).toString(36)}`
+  bridgeTasks.set(id, {
+    method: req.method, path: targetPath, headers,
+    body: body.length ? body : null, status: 'pending', result: null, createdAt: Date.now(),
+  })
+  const deadline = Date.now() + BRIDGE_TIMEOUT_MS
+  const wait = () => {
+    const t = bridgeTasks.get(id)
+    if (t?.status === 'done' && t.result) {
+      bridgeTasks.delete(id)
+      const cleanHeaders = { ...t.result.headers }
+      delete cleanHeaders['transfer-encoding']
+      delete cleanHeaders['content-encoding'] // 回传已是解码后 body
+      res.writeHead(t.result.status, cleanHeaders)
+      res.end(t.result.body)
+      return
+    }
+    if (Date.now() > deadline) {
+      bridgeTasks.delete(id)
+      return json(res, 503, 'Bridge agent 未响应（B 房 agent 未启动或 ComfyUI 未运行）')
+    }
+    setTimeout(wait, 300)
+  }
+  wait()
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -721,12 +822,23 @@ const server = http.createServer((req, res) => {
   if (p.startsWith('/api/auth/')) {
     if (handleAuthApi(req, res, p, url)) return
   }
+  // 桥接 agent 接口：用 BRIDGE_TOKEN 鉴权，不走 cookie（agent 在单位机，无登录态）
+  if (p === '/api/bridge/poll' && req.method === 'GET') return void handleBridgePoll(req, res, url)
+  if (p === '/api/bridge/result' && req.method === 'POST') return void handleBridgeResult(req, res, url)
+  if (p === '/api/bridge/status' && req.method === 'GET') {
+    if (!BRIDGE_ENABLED) return sendJson(res, 200, { enabled: false })
+    if (!bridgeTokenOk(req, url)) return sendJson(res, 401, { error: 'bad token' })
+    const pending = [...bridgeTasks.values()].filter((t) => t.status === 'pending').length
+    return sendJson(res, 200, { enabled: true, pending, queued: bridgeTasks.size })
+  }
   // 数据/代理接口需要登录；静态资源(index.html/assets/img 等)放行以便登录页渲染
   const isDataApi = p === '/api/proxy' || p.startsWith('/comfy') || p.startsWith('/userdata')
   if (isDataApi && !isAuthed(req)) return sendUnauthorized(res)
   if (p === '/api/proxy') return void handleApiProxy(req, res)
   if (p === '/comfy' || p.startsWith('/comfy/')) {
     const rest = p.replace(/^\/comfy/, '') || '/'
+    // Bridge 优先：启用时走轮询队列（不依赖 frp 隧道）
+    if (BRIDGE_ENABLED) return void handleBridgeComfy(req, res, `${rest}${url.search}`)
     return void handleComfyHttp(req, res, `${rest}${url.search}`)
   }
   if (p === '/userdata/list') {
