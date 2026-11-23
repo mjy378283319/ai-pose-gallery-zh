@@ -11,7 +11,7 @@ import { useStudio } from '@/store/studioStore'
 
 export function RecipeDock() {
   const { pathname } = useLocation()
-  const { recipe, apiConfig, isGenerating, setPortrait, setCostume, setPose, toggleRecipePoseDepth, clearRecipe, randomizeRecipe, startGeneration } = useStudio()
+  const { recipe, apiConfig, isGenerating, setPortrait, setCostume, setPose, toggleRecipePoseDepth, clearRecipe, randomizeRecipe, startGeneration, updateApiConfig } = useStudio()
   const qc = useQueryClient()
   const extraCount = (recipe.extraImages || []).length
   const workflowImages = apiConfig.activeProvider === 'comfyui' && recipe.workflowImagesIdentity === workflowIdentity(apiConfig.comfyuiParams.workflowJson) ? Object.values(recipe.workflowImages || {}) : []
@@ -46,13 +46,13 @@ export function RecipeDock() {
       <div className="flex flex-col gap-2 rounded-2xl border border-border/80 bg-card/95 p-2 shadow-lg backdrop-blur-md @3xl/main:flex-row @3xl/main:items-center @3xl/main:justify-between sm:px-3.5 sm:py-2.5">
         <div className="grid min-w-0 max-w-full flex-1 grid-cols-3 gap-1.5 sm:gap-2">
           {/* Slot 1: Portrait */}
-          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-xl bg-muted/80 p-1.5 @md/main:flex-row @md/main:items-center sm:gap-2 sm:p-2">
+          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-lg bg-muted/70 p-1 @md/main:flex-row @md/main:items-center sm:gap-1.5 sm:p-1.5">
             {recipe.portrait ? (
               <>
                 <img
                   src={referenceImageUrl(recipe.portrait.缩略图)}
                   alt={recipe.portrait.标题}
-                  className="h-8 w-7 shrink-0 rounded-md object-cover sm:h-10 sm:w-8"
+                  className="h-7 w-6 shrink-0 rounded object-cover sm:h-8 sm:w-7"
                 />
                 <div className="min-w-0 max-w-full flex-1">
                   <div className="truncate text-[11px] font-medium sm:text-xs">{recipe.portrait.发型名称}</div>
@@ -68,8 +68,8 @@ export function RecipeDock() {
               </>
             ) : (
               <Link to="/portraits" className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-muted-foreground hover:text-foreground">
-                <div className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 sm:h-10 sm:w-8">
-                  <UserRoundIcon className="size-3.5" />
+                <div className="flex h-7 w-6 shrink-0 items-center justify-center rounded bg-background/80 sm:h-8 sm:w-7">
+                  <UserRoundIcon className="size-3" />
                 </div>
                 <span className="truncate text-[11px] sm:text-xs">人像</span>
               </Link>
@@ -77,13 +77,13 @@ export function RecipeDock() {
           </div>
 
           {/* Slot 2: Costume */}
-          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-xl bg-muted/80 p-1.5 @md/main:flex-row @md/main:items-center sm:gap-2 sm:p-2">
+          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-lg bg-muted/70 p-1 @md/main:flex-row @md/main:items-center sm:gap-1.5 sm:p-1.5">
             {recipe.costume ? (
               <>
                 <img
                   src={referenceImageUrl(recipe.costume.缩略图)}
                   alt={recipe.costume.服装名称}
-                  className="h-8 w-7 shrink-0 rounded-md object-cover sm:h-10 sm:w-8"
+                  className="h-7 w-6 shrink-0 rounded object-cover sm:h-8 sm:w-7"
                 />
                 <div className="min-w-0 max-w-full flex-1">
                   <div className="truncate text-[11px] font-medium sm:text-xs">{recipe.costume.服装名称}</div>
@@ -99,8 +99,8 @@ export function RecipeDock() {
               </>
             ) : (
               <Link to="/costumes" className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-muted-foreground hover:text-foreground">
-                <div className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 sm:h-10 sm:w-8">
-                  <ShirtIcon className="size-3.5" />
+                <div className="flex h-7 w-6 shrink-0 items-center justify-center rounded bg-background/80 sm:h-8 sm:w-7">
+                  <ShirtIcon className="size-3" />
                 </div>
                 <span className="truncate text-[11px] sm:text-xs">服装</span>
               </Link>
@@ -108,13 +108,13 @@ export function RecipeDock() {
           </div>
 
           {/* Slot 3: Pose */}
-          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-xl bg-muted/80 p-1.5 @md/main:flex-row @md/main:items-center sm:gap-2 sm:p-2">
+          <div className="relative flex min-w-0 flex-col items-start gap-1.5 rounded-lg bg-muted/70 p-1 @md/main:flex-row @md/main:items-center sm:gap-1.5 sm:p-1.5">
             {recipe.pose ? (
               <>
                 <img
                   src={referenceImageUrl(poseThumbPath(recipe.pose))}
                   alt={recipe.pose.姿势名称}
-                  className="h-8 w-7 shrink-0 rounded-md object-cover sm:h-10 sm:w-8"
+                  className="h-7 w-6 shrink-0 rounded object-cover sm:h-8 sm:w-7"
                 />
                 <div className="min-w-0 max-w-full flex-1">
                   <div className="truncate text-[11px] font-medium sm:text-xs" title={recipe.pose.姿势名称}>{recipe.pose.姿势名称}</div>
@@ -141,8 +141,8 @@ export function RecipeDock() {
               </>
             ) : (
               <Link to="/poses" className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-muted-foreground hover:text-foreground">
-                <div className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 sm:h-10 sm:w-8">
-                  <PersonStandingIcon className="size-3.5" />
+                <div className="flex h-7 w-6 shrink-0 items-center justify-center rounded bg-background/80 sm:h-8 sm:w-7">
+                  <PersonStandingIcon className="size-3" />
                 </div>
                 <span className="truncate text-[11px] sm:text-xs">姿势</span>
               </Link>
@@ -152,17 +152,33 @@ export function RecipeDock() {
 
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={handleRandom}>
-            <DicesIcon className="size-3.5" />
+            <DicesIcon className="size-3" />
             随机
           </Button>
+          <div className="flex items-center gap-0.5 rounded-lg border bg-background/60 p-0.5" title="生成数量">
+            {[1, 2, 4, 8, 16, 32].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => updateApiConfig({ imageCount: n })}
+                className={`h-6 min-w-6 rounded px-1 text-[10px] font-medium transition-colors ${
+                  (apiConfig.imageCount || 1) === n
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
           {count > 0 && (
             <>
               <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" aria-label="复制提示词" onClick={handleCopyPrompt}>
-                <CopyIcon className="size-3.5" />
+                <CopyIcon className="size-3" />
                 <span className="hidden md:inline">复制词</span>
               </Button>
               <Button variant="ghost" size="icon" className="size-8" aria-label="清空参考图" onClick={clearRecipe}>
-                <Trash2Icon className="size-3.5" />
+                <Trash2Icon className="size-3" />
               </Button>
             </>
           )}
@@ -175,12 +191,12 @@ export function RecipeDock() {
           >
             {isGenerating ? (
               <>
-                <LoaderCircleIcon className="size-3.5 animate-spin" />
+                <LoaderCircleIcon className="size-3 animate-spin" />
                 生成中…
               </>
             ) : (
               <>
-                <SparklesIcon className="size-3.5" />
+                <SparklesIcon className="size-3" />
                 合成 ({count})
               </>
             )}
