@@ -1,3 +1,4 @@
+// 提示词构建：把配方（人像/服装/姿势/附加图）转成各 provider 的 prompt。
 import type { ApiConfig, ExtraReferenceImage, ImageProviderId, RecipeState } from '@/types/gallery'
 import { applyWorkflowOverrides, getWorkflowImages, validateReferenceCombinations, workflowIdentity, type ComfyObjectInfo } from '@/lib/comfyWorkflowParameters'
 import { poseImagePath, referenceImageUrl } from '@/lib/recipeImages'
