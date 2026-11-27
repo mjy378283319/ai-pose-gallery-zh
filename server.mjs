@@ -22,6 +22,8 @@ import https from 'node:https'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import net from 'node:net'
+import dns from 'node:dns/promises'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
@@ -769,6 +771,107 @@ async function handleUserdataUpload(req, res) {
   })
 }
 
+/* ── 网页图片直接入库：服务端代理下载（浏览器跨域取不到图片二进制） ── */
+function isPrivateIp(ip) {
+  const s = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '')
+  if (s === '::1' || s === '::' || s === '0.0.0.0') return true
+  if (s.startsWith('::ffff:')) return isPrivateIp(s.slice(7))
+  if (net.isIP(s) === 4) {
+    const a = s.split('.').map(Number)
+    if (a[0] === 10 || a[0] === 127 || a[0] === 0) return true
+    if (a[0] === 169 && a[1] === 254) return true
+    if (a[0] === 172 && a[1] >= 16 && a[1] <= 31) return true
+    if (a[0] === 192 && a[1] === 168) return true
+    if (a[0] === 100 && a[1] >= 64 && a[1] <= 127) return true
+    if (a[0] >= 224) return true
+    return false
+  }
+  if (net.isIP(s) === 6) {
+    if (s.startsWith('fc') || s.startsWith('fd') || s.startsWith('fe80') || s.startsWith('fec0')) return true
+    return false
+  }
+  return true
+}
+
+async function assertPublicHost(hostname) {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) throw new Error('禁止访问本机/内网地址')
+  if (net.isIP(h)) {
+    if (isPrivateIp(h)) throw new Error('禁止访问内网 IP')
+    return
+  }
+  let addrs = []
+  try { addrs = await dns.lookup(h, { all: true }) } catch { throw new Error('域名解析失败') }
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) throw new Error('域名指向内网地址')
+}
+
+function imageExtFromContentType(ct) {
+  const m = /image\/(jpeg|jpg|png|webp|gif|bmp|avif)/i.exec(ct || '')
+  if (!m) return ''
+  const t = m[1].toLowerCase()
+  return t === 'jpeg' ? '.jpg' : t === 'jpg' ? '.jpg' : `.${t}`
+}
+
+async function handleUserdataFetchUrl(req, res) {
+  let raw
+  try { raw = await readBody(req, 8192) } catch { return json(res, 413, '请求体过大') }
+  let body
+  try { body = JSON.parse(raw.toString('utf8')) } catch { return json(res, 400, '无效的 JSON') }
+  const url = typeof body.url === 'string' ? body.url.trim() : ''
+  if (!url) return json(res, 400, '缺少图片网址 url')
+  let cur
+  try { cur = new URL(url) } catch { return json(res, 400, '网址格式无效') }
+
+  const timeout = AbortSignal.timeout(20000)
+  try {
+    // 最多 5 跳重定向，每跳都校验目标（防 DNS rebinding / 内网跳转）
+    for (let hop = 0; hop < 5; hop++) {
+      if (cur.protocol !== 'http:' && cur.protocol !== 'https:') return json(res, 400, '仅支持 http/https 图片网址')
+      await assertPublicHost(cur.hostname)
+      const r = await fetch(cur.toString(), {
+        redirect: 'manual',
+        signal: timeout,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PoseNAS/1.0)', Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' },
+      })
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get('location')
+        if (!loc) return json(res, 400, '重定向缺少目标')
+        cur = new URL(loc, cur)
+        continue
+      }
+      if (!r.ok) return json(res, 502, `下载失败：HTTP ${r.status}`)
+      const ct = r.headers.get('content-type') || ''
+      const len = Number(r.headers.get('content-length') || 0)
+      if (len > MAX_UPLOAD_BYTES) return json(res, 413, '图片超过 20 MB')
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (!buf.length) return json(res, 400, '图片内容为空')
+      if (buf.length > MAX_UPLOAD_BYTES) return json(res, 413, '图片超过 20 MB')
+      // 图片魔数校验（与上传接口一致）
+      const isJpg = buf[0] === 0xff && buf[1] === 0xd8
+      const isPng = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      const isGif = buf.subarray(0, 3).toString() === 'GIF'
+      const isWebp = buf.subarray(8, 12).toString() === 'WEBP'
+      const isBmp = buf[0] === 0x42 && buf[1] === 0x4d
+      if (!(isJpg || isPng || isGif || isWebp || isBmp)) return json(res, 400, '网址返回的不是图片（jpg/png/gif/webp/bmp）')
+      // 文件名：优先 URL 路径，装饰性后缀兜底
+      let name = path.basename(cur.pathname)
+      try { name = decodeURIComponent(name) } catch { /* keep raw */ }
+      name = safeUserName(name)
+      if (!name) {
+        const ext = imageExtFromContentType(ct) || (isPng ? '.png' : isJpg ? '.jpg' : isGif ? '.gif' : isWebp ? '.webp' : '.bmp')
+        name = `网页图片_${Date.now()}${ext}`
+      }
+      return sendJson(res, 200, { ok: true, name, data: buf.toString('base64') })
+    }
+    return json(res, 400, '重定向次数过多')
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') return json(res, 504, '下载超时（20 秒）')
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('禁止') || msg.includes('解析失败') || msg.includes('内网')) return json(res, 400, msg)
+    return json(res, 502, `拉取图片失败：${msg}`)
+  }
+}
+
 async function handleUserdataCaption(req, res) {
   let raw
   try {
@@ -917,6 +1020,10 @@ const server = http.createServer((req, res) => {
   if (p === '/userdata/upload') {
     if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
     return void handleUserdataUpload(req, res)
+  }
+  if (p === '/userdata/fetch-url') {
+    if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')
+    return void handleUserdataFetchUrl(req, res)
   }
   if (p === '/userdata/caption') {
     if (req.method !== 'POST') return json(res, 405, 'Method Not Allowed')

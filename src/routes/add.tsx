@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { HistoryIcon, ImagePlusIcon, PencilIcon, PlusIcon, UploadIcon, XIcon } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type DragEvent } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,31 @@ async function dataUrlToFile(dataUrl: string, nameHint: string): Promise<File> {
   return new File([blob], `${nameHint}.${ext}`, { type: blob.type || 'image/png' })
 }
 
+// 网页图片网址 → 服务端代理下载 → File（浏览器跨域取不到图片二进制）
+async function urlToFile(url: string): Promise<File> {
+  const res = await fetch('/userdata/fetch-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+  const out = (await res.json()) as { ok?: boolean; name?: string; data?: string; error?: { message?: string } }
+  if (!res.ok || !out.ok || !out.data || !out.name) throw new Error(out.error?.message || '拉取图片失败')
+  const ext = out.name.split('.').pop()?.toLowerCase() || 'png'
+  const mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`
+  return dataUrlToFile(`data:${mime};base64,${out.data}`, out.name.replace(/\.[^.]+$/, ''))
+}
+
+// 从拖拽事件中提取网页图片 URL（dataTransfer 里通常是 uri-list 或含 img 的 html）
+function droppedImageUrl(dt: DataTransfer): string {
+  const uri = dt.getData('text/uri-list') || dt.getData('text/plain') || ''
+  const first = uri.split('\n').map((s) => s.trim()).find((s) => /^https?:\/\//i.test(s))
+  if (first) return first
+  const html = dt.getData('text/html') || ''
+  const m = /<img[^>]+src=["']([^"']+)["']/i.exec(html)
+  if (m && /^https?:\/\//i.test(m[1])) return m[1]
+  return ''
+}
+
 function AddPage() {
   const { history, extractKeywords } = useStudio()
   const [autoKeywords, setAutoKeywords] = useState(true)
@@ -47,6 +72,8 @@ function AddPage() {
   const [files, setFiles] = useState<File[]>([])
   const [uploadCaption, setUploadCaption] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [imageUrl, setImageUrl] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // 生成历史选图弹窗：'text'=文字配图，'upload'=上传队列
@@ -130,6 +157,58 @@ function AddPage() {
     if (lastErr) toast.error(lastErr)
   }
 
+  // 本地图片文件 → 入上传队列
+  const addLocalFiles = (list: FileList | File[]) => {
+    const imgs = Array.from(list).filter((f) => f.type.startsWith('image/'))
+    if (!imgs.length) return toast.info('拖入的不是图片')
+    setFiles((prev) => [...prev, ...imgs])
+    toast.success(`已加入 ${imgs.length} 张图片`)
+  }
+
+  // 拖放到上传区：本地文件优先，否则取网页图片 URL
+  const onUploadDrop = async (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer.files.length) return addLocalFiles(e.dataTransfer.files)
+    const url = droppedImageUrl(e.dataTransfer)
+    if (!url) return toast.info('请拖入图片文件，或从网页拖入图片')
+    try {
+      const file = await urlToFile(url)
+      setFiles((prev) => [...prev, file])
+      toast.success(`已加入网页图片：${file.name}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '拉取失败')
+    }
+  }
+
+  // 粘贴网址入上传队列
+  const addFromUrl = async () => {
+    const url = imageUrl.trim()
+    if (!url) return toast.info('先粘贴图片网址')
+    try {
+      const file = await urlToFile(url)
+      setFiles((prev) => [...prev, file])
+      setImageUrl('')
+      toast.success(`已加入网页图片：${file.name}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '拉取失败')
+    }
+  }
+
+  // 文字配图区拖放
+  const onTextImageDrop = async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer.files.length) {
+      const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/'))
+      if (f) return setTextImage(f)
+      return toast.info('拖入的不是图片')
+    }
+    const url = droppedImageUrl(e.dataTransfer)
+    if (!url) return toast.info('请拖入图片，或从网页拖入图片')
+    try { setTextImage(await urlToFile(url)) } catch (err) { toast.error(err instanceof Error ? err.message : '拉取失败') }
+  }
+
   const pickGenerated = async (url: string) => {
     if (!pickerFor) return
     try {
@@ -171,13 +250,21 @@ function AddPage() {
             />
           </div>
           <div className="flex flex-col gap-2">
-            <input
-              ref={textImageRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => setTextImage(e.target.files?.[0] || null)}
-              className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
-            />
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => void onTextImageDrop(e)}
+              className={`rounded-lg border-2 border-dashed p-2 transition-colors ${dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/30'}`}
+            >
+              <input
+                ref={textImageRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => setTextImage(e.target.files?.[0] || null)}
+                className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
+              />
+              <div className="mt-1 text-center text-[11px] text-muted-foreground">或把网页图片拖到这里</div>
+            </div>
             <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('text')}>
               <HistoryIcon className="size-3.5" />
               从生成历史选图
@@ -207,18 +294,34 @@ function AddPage() {
             <div className="text-xs text-muted-foreground">可多选图片；单张 ≤ 20 MB，支持 jpg / png / webp / gif</div>
           </div>
         </div>
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20 px-4 py-8 text-center transition-colors hover:border-primary/50 hover:bg-primary/5">
+        <label
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => void onUploadDrop(e)}
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${dragOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-primary/5'}`}
+        >
           <ImagePlusIcon className="size-9 text-muted-foreground" />
           <span className="text-sm text-muted-foreground">{files.length ? `已选择 ${files.length} 张图片` : '点击选择图片，或多选'}</span>
+          <span className="text-xs text-primary">也可把网页图片直接拖到这里，或粘贴图片网址 ↓</span>
           <input
             ref={fileRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
             multiple
-            onChange={(e) => setFiles(Array.from(e.target.files || []))}
+            onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files || [])])}
             className="hidden"
           />
         </label>
+        <div className="flex gap-2">
+          <Input
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addFromUrl() } }}
+            placeholder="粘贴网页图片网址，回车加入队列（如 https://…/pic.jpg）"
+            className="h-10"
+          />
+          <Button type="button" variant="outline" onClick={() => void addFromUrl()} disabled={!imageUrl.trim()}>加入</Button>
+        </div>
         <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('upload')}>
           <HistoryIcon className="size-3.5" />
           从生成历史选图
