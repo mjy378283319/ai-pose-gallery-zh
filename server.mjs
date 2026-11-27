@@ -486,6 +486,24 @@ function captionFor(name, captions, cb) {
 
 const TEXT_DIR = () => path.join(USERDATA_DIR, 'texts')
 
+// 文字项关联配图：同名图为主图，其余用 <标题>__N.<ext>（N>=2）。
+// 文件名规范化需与前端 safeUserName 一致（非 \w/中文/./- 替换为 _）。
+const normLabel = (s) => String(s || '').replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
+function attachedImages(files, label) {
+  const base = normLabel(label)
+  const hit = files.filter((f) => {
+    const stem = normLabel(f.name)
+    return stem === base || new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}__\\d+$`).test(stem)
+  })
+  // 主图(同名)排第一，其余按 __N 数字升序
+  hit.sort((a, b) => {
+    const an = normLabel(a.name) === base ? 0 : Number(normLabel(a.name).split('__').pop()) || 99
+    const bn = normLabel(b.name) === base ? 0 : Number(normLabel(b.name).split('__').pop()) || 99
+    return an - bn
+  })
+  return hit
+}
+
 async function handleUserdataList(res) {
   try {
     await fs.promises.mkdir(USERDATA_DIR, { recursive: true })
@@ -521,12 +539,15 @@ async function handleUserdataList(res) {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
     // 文件名规范化：与下方 matchedImg 一致。同名配图只作为文字项的缩略图，
     // 不再单列为独立图片项，避免素材库出现"纯图 + 图文"两条重复记录。
-    const normLabel = (s) => s.replace(/\.[^.]+$/, '').replace(/[^\w\u4e00-\u9fa5.\-]/g, '_')
-    const textLabels = new Set(textFiles.map((e) => normLabel(e.name.replace(/\.txt$/i, ''))))
+    const attachedSet = new Set()
+    for (const e of textFiles) {
+      const label = e.name.replace(/\.txt$/i, '')
+      for (const img of attachedImages(files, label)) attachedSet.add(img.name)
+    }
 
     const items = []
     for (const f of files) {
-      if (textLabels.has(normLabel(f.name))) continue // 跳过文字项的配图
+      if (attachedSet.has(f.name)) continue // 跳过文字项的所有配图（主图+__N）
       const caption = await new Promise((resolve) => captionFor(f.name, captions, resolve))
       let st = null
       try { st = await fs.promises.stat(f.full) } catch {}
@@ -546,14 +567,16 @@ async function handleUserdataList(res) {
       let text = '', st = null
       try { text = (await fs.promises.readFile(full, 'utf8')).trim() } catch {}
       try { st = await fs.promises.stat(full) } catch {}
-      // 文字项可附加一张同名配图（images/<label>.<ext>），前端据此显示缩略图并支持编辑
-      const matchedImg = files.find((f) => normLabel(f.name) === normLabel(label))
+      // 文字项可附加多张配图：images/<label>.<ext> 为主图，images/<label>__2.<ext>... 为附图
+      const imgs = attachedImages(files, label)
       items.push({
         kind: 'text',
         name: e.name,
         label,
-        url: matchedImg ? `/userdata/img/${encodeURIComponent(matchedImg.name)}` : null,
-        imageName: matchedImg?.name || null,
+        url: imgs[0] ? `/userdata/img/${encodeURIComponent(imgs[0].name)}` : null,
+        imageName: imgs[0]?.name || null,
+        imageNames: imgs.map((f) => f.name),
+        urls: imgs.map((f) => `/userdata/img/${encodeURIComponent(f.name)}`),
         caption: text,
         size: st?.size || 0,
         mtime: st ? st.mtime.toISOString() : '',
@@ -623,6 +646,15 @@ async function handleUserdataTextDelete(req, res, url) {
   if (!name) return json(res, 400, '标题无效')
   try {
     await fs.promises.unlink(path.join(TEXT_DIR(), name))
+    // 一并删除所有关联配图（主图 + __N 附图）；best-effort
+    const label = name.replace(/\.txt$/i, '')
+    const imgDir = path.join(USERDATA_DIR, 'images')
+    const allImgs = (await fs.promises.readdir(imgDir).catch(() => []))
+      .filter((f) => USER_IMAGE_EXT.has(path.extname(f).toLowerCase()))
+      .map((f) => ({ name: f, full: path.join(imgDir, f) }))
+    for (const img of attachedImages(allImgs, label)) {
+      await fs.promises.unlink(img.full).catch(() => {})
+    }
     sendJson(res, 200, { ok: true, name })
   } catch (err) {
     json(res, 500, `删除失败：${err instanceof Error ? err.message : err}`)
@@ -704,22 +736,26 @@ async function handleUserdataRename(req, res) {
     if (!fs.existsSync(srcTxt)) return json(res, 404, '原文字不存在')
     if (fs.existsSync(dstTxt)) return json(res, 409, '新标题已存在')
     await fs.promises.rename(srcTxt, dstTxt)
-    // 关联配图一起改名
+    // 所有关联配图一起改名（主图 + __N 附图）
     const fromLabel = fromName.replace(/\.txt$/i, '')
     const toLabel = toName.replace(/\.txt$/i, '')
     const imgDir = path.join(USERDATA_DIR, 'images')
-    let attached = null
-    for (const f of await fs.promises.readdir(imgDir).catch(() => [])) {
-      if (f.replace(/\.[^.]+$/, '') === fromLabel) {
-        const newImg = toLabel + path.extname(f)
-        await fs.promises.rename(path.join(imgDir, f), path.join(imgDir, newImg)).catch(() => {})
-        attached = newImg
-        break
-      }
+    const allImgs = (await fs.promises.readdir(imgDir).catch(() => []))
+      .filter((f) => USER_IMAGE_EXT.has(path.extname(f).toLowerCase()))
+      .map((f) => ({ name: f, full: path.join(imgDir, f) }))
+    const attached = attachedImages(allImgs, fromLabel)
+    const renamed = []
+    for (const img of attached) {
+      const stem = normLabel(img.name)
+      const suffix = stem === normLabel(fromLabel) ? '' : stem.slice(normLabel(fromLabel).length) // '__2' 等
+      const newImg = toLabel + suffix + path.extname(img.name)
+      if (newImg !== img.name) await fs.promises.rename(img.full, path.join(imgDir, newImg)).catch(() => {})
+      renamed.push(newImg)
     }
     return sendJson(res, 200, {
       ok: true, kind, name: toName, label: toLabel,
-      url: attached ? `/userdata/img/${encodeURIComponent(attached)}` : null,
+      url: renamed[0] ? `/userdata/img/${encodeURIComponent(renamed[0])}` : null,
+      urls: renamed.map((n) => `/userdata/img/${encodeURIComponent(n)}`),
     })
   } catch (err) {
     json(res, 500, `重命名失败（挂载是否只读？）：${err instanceof Error ? err.message : err}`)

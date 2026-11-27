@@ -64,7 +64,7 @@ function AddPage() {
   // 直接添加文字
   const [textTitle, setTextTitle] = useState('')
   const [textBody, setTextBody] = useState('')
-  const [textImage, setTextImage] = useState<File | null>(null)
+  const [textImages, setTextImages] = useState<File[]>([])
   const [savingText, setSavingText] = useState(false)
   const textImageRef = useRef<HTMLInputElement>(null)
 
@@ -80,7 +80,7 @@ function AddPage() {
   const [pickerFor, setPickerFor] = useState<'text' | 'upload' | null>(null)
 
   const saveText = async () => {
-    if (!textBody.trim() && !textImage) return toast.info('写点文字或选一张图片')
+    if (!textBody.trim() && !textImages.length) return toast.info('写点文字或选一张图片')
     setSavingText(true)
     try {
       const title = textTitle.trim() || `文字 ${new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '')}`
@@ -91,19 +91,22 @@ function AddPage() {
       })
       const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
       if (!res.ok || !out.ok) throw new Error(out.error?.message || '保存失败')
-      if (textImage) {
-        const ext = textImage.name.replace(/^.*\./, '').toLowerCase() || 'png'
-        const data = await toBase64(textImage)
+      // 多张配图：主图 <标题>.<ext>，附图 <标题>__2.<ext>...（服务端据此关联）
+      for (let i = 0; i < textImages.length; i++) {
+        const f = textImages[i]
+        const ext = f.name.replace(/^.*\./, '').toLowerCase() || 'png'
+        const name = `${title}${i === 0 ? '' : `__${i + 1}`}.${ext}`
+        const data = await toBase64(f)
         const ir = await fetch('/userdata/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `${title}.${ext}`, data, caption: '' }),
+          body: JSON.stringify({ name, data, caption: '' }),
         })
         const io = (await ir.json()) as { ok?: boolean; error?: { message?: string } }
-        if (!ir.ok || !io.ok) throw new Error(io.error?.message || '配图保存失败')
+        if (!ir.ok || !io.ok) throw new Error(io.error?.message || `第 ${i + 1} 张配图保存失败`)
       }
-      toast.success('已保存到 NAS，可在「我的素材」查看')
-      setTextTitle(''); setTextBody(''); setTextImage(null)
+      toast.success(`已保存到 NAS（${textImages.length} 张配图），可在「我的素材」查看`)
+      setTextTitle(''); setTextBody(''); setTextImages([])
       if (textImageRef.current) textImageRef.current.value = ''
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
@@ -200,20 +203,24 @@ function AddPage() {
     e.preventDefault()
     setDragOver(false)
     if (e.dataTransfer.files.length) {
-      const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/'))
-      if (f) return setTextImage(f)
+      const imgs = Array.from(e.dataTransfer.files).filter((x) => x.type.startsWith('image/'))
+      if (imgs.length) { setTextImages((prev) => [...prev, ...imgs]); return toast.success(`已加入 ${imgs.length} 张配图`) }
       return toast.info('拖入的不是图片')
     }
     const url = droppedImageUrl(e.dataTransfer)
     if (!url) return toast.info('请拖入图片，或从网页拖入图片')
-    try { setTextImage(await urlToFile(url)) } catch (err) { toast.error(err instanceof Error ? err.message : '拉取失败') }
+    try {
+      const file = await urlToFile(url)
+      setTextImages((prev) => [...prev, file])
+      toast.success('已加入配图')
+    } catch (err) { toast.error(err instanceof Error ? err.message : '拉取失败') }
   }
 
   const pickGenerated = async (url: string) => {
     if (!pickerFor) return
     try {
       const file = await dataUrlToFile(url, `生成图_${Date.now()}`)
-      if (pickerFor === 'text') setTextImage(file)
+      if (pickerFor === 'text') setTextImages((prev) => [...prev, file])
       else setFiles((prev) => [...prev, file])
       setPickerFor(null)
       toast.success(pickerFor === 'text' ? '已选为配图，保存后生效' : '已加入上传队列，点上传即存入素材')
@@ -260,25 +267,34 @@ function AddPage() {
                 ref={textImageRef}
                 type="file"
                 accept="image/*"
-                onChange={(e) => setTextImage(e.target.files?.[0] || null)}
+                multiple
+                onChange={(e) => setTextImages((prev) => [...prev, ...Array.from(e.target.files || [])])}
                 className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
               />
-              <div className="mt-1 text-center text-[11px] text-muted-foreground">或把网页图片拖到这里</div>
+              <div className="mt-1 text-center text-[11px] text-muted-foreground">可多选；或把网页图片拖到这里（不限张数）</div>
             </div>
             <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('text')}>
               <HistoryIcon className="size-3.5" />
-              从生成历史选图
+              从生成历史选图（可多次选）
             </Button>
-            {textImage && (
-              <div className="relative overflow-hidden rounded-lg border">
-                <img src={URL.createObjectURL(textImage)} alt="配图预览" className="h-32 w-full object-contain" />
-                <button type="button" onClick={() => { setTextImage(null); if (textImageRef.current) textImageRef.current.value = '' }} className="absolute top-1 right-1 rounded bg-black/60 p-1 text-white"><XIcon className="size-3.5" /></button>
-              </div>
+            {textImages.length > 0 && (
+              <>
+                <div className="text-[11px] text-muted-foreground">已选 {textImages.length} 张配图（第 1 张为主图）</div>
+                <div className="grid max-h-40 grid-cols-2 gap-1.5 overflow-y-auto">
+                  {textImages.map((f, i) => (
+                    <div key={i} className="relative overflow-hidden rounded-lg border">
+                      <img src={URL.createObjectURL(f)} alt={`配图 ${i + 1}`} className="h-20 w-full object-contain" />
+                      <span className="absolute top-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">{i + 1}</span>
+                      <button type="button" onClick={() => setTextImages((prev) => prev.filter((_, j) => j !== i))} className="absolute top-1 right-1 rounded bg-black/60 p-0.5 text-white"><XIcon className="size-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
         <div className="flex justify-end">
-          <Button size="lg" onClick={() => void saveText()} disabled={savingText || (!textBody.trim() && !textImage)}>
+          <Button size="lg" onClick={() => void saveText()} disabled={savingText || (!textBody.trim() && !textImages.length)}>
             <PlusIcon className="size-4" />
             {savingText ? '保存中…' : '保存文字'}
           </Button>

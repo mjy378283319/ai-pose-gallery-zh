@@ -18,6 +18,8 @@ interface MineItem {
   label?: string
   url: string | null
   imageName?: string | null
+  imageNames?: string[]
+  urls?: string[]
   caption: string
   size: number
   mtime: string
@@ -50,12 +52,13 @@ async function dataUrlToFile(dataUrl: string, nameHint: string): Promise<File> {
   return new File([blob], `${nameHint}.${ext}`, { type: blob.type || 'image/png' })
 }
 
-// 编辑弹窗状态：item=正在编辑的素材；imageFile=新选的图片（换图/加图）
+// 编辑弹窗状态：item=正在编辑的素材；imageFiles=新加的图片；removedImages=要删除的旧配图
 interface EditState {
   item: MineItem
   title: string
   text: string
-  imageFile: File | null
+  imageFiles: File[]
+  removedImages: string[]
 }
 
 function MinePage() {
@@ -100,12 +103,12 @@ function MinePage() {
 
   // 统一的素材编辑：标题 + 文字 + 可选换图/加图
   const openEdit = (item: MineItem) => {
-    setEdit({ item, title: item.label || item.name.replace(/\.[^.]+$/, ''), text: item.caption, imageFile: null })
+    setEdit({ item, title: item.label || item.name.replace(/\.[^.]+$/, ''), text: item.caption, imageFiles: [], removedImages: [] })
   }
 
   const saveEdit = async () => {
     if (!edit) return
-    if (!edit.text && !edit.imageFile && !edit.item.url) return toast.info('内容为空')
+    if (!edit.text && !edit.imageFiles.length && !edit.item.url) return toast.info('内容为空')
     setSavingEdit(true)
     try {
       const isText = edit.item.kind === 'text'
@@ -128,20 +131,40 @@ function MinePage() {
         finalUrl = o.url ?? finalUrl
       }
 
-      // 2) 换图 / 加图：用最终标题作为图片文件名上传（同名覆盖）
-      if (edit.imageFile) {
-        // 图片项保持原扩展名；文字项用标题+原扩展名（让 list 的同名匹配生效）
-        const ext = edit.imageFile.name.replace(/^.*\./, '').toLowerCase() || 'png'
-        const imgFileName = isText ? `${newTitle || oldTitle}.${ext}` : finalName
-        const data = await toBase64(edit.imageFile)
+      // 2) 删除被移除的旧配图
+      for (const imgName of edit.removedImages) {
+        await fetch(`/userdata/image?name=${encodeURIComponent(imgName)}`, { method: 'DELETE' }).catch(() => {})
+      }
+
+      // 3) 加图：文字项图名 = <标题>__N（N 从现有配图数+1 开始，避让被删的序号）
+      if (isText) {
+        const baseTitle = newTitle || oldTitle
+        const keptCount = (edit.item.imageNames || []).filter((n) => !edit.removedImages.includes(n)).length
+        for (let i = 0; i < edit.imageFiles.length; i++) {
+          const f = edit.imageFiles[i]
+          const ext = f.name.replace(/^.*\./, '').toLowerCase() || 'png'
+          const seq = keptCount + i
+          const imgName = `${baseTitle}${seq === 0 ? '' : `__${seq + 1}`}.${ext}`
+          const data = await toBase64(f)
+          const r = await fetch('/userdata/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: imgName, data, caption: '' }),
+          })
+          const o = (await r.json()) as { ok?: boolean; error?: { message?: string } }
+          if (!r.ok || !o.ok) throw new Error(o.error?.message || `第 ${i + 1} 张配图保存失败`)
+          if (seq === 0) finalUrl = `/userdata/img/${encodeURIComponent(imgName)}`
+        }
+      } else if (edit.imageFiles[0]) {
+        // 图片项：保持原文件名覆盖
+        const data = await toBase64(edit.imageFiles[0])
         const r = await fetch('/userdata/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: imgFileName, data, caption: '' }),
+          body: JSON.stringify({ name: finalName, data, caption: '' }),
         })
-        const o = (await r.json()) as { ok?: boolean; name?: string; error?: { message?: string } }
+        const o = (await r.json()) as { ok?: boolean; error?: { message?: string } }
         if (!r.ok || !o.ok) throw new Error(o.error?.message || '图片保存失败')
-        if (isText) finalUrl = `/userdata/img/${encodeURIComponent(o.name || imgFileName)}`
       }
 
       // 3) 保存文字：图片项走 caption，文字项走 text（用最终 name）
@@ -180,7 +203,7 @@ function MinePage() {
   const pickGenerated = async (url: string) => {
     try {
       const file = await dataUrlToFile(url, `生成图_${Date.now()}`)
-      setEdit((prev) => prev ? { ...prev, imageFile: file } : prev)
+      setEdit((prev) => prev ? { ...prev, imageFiles: [...prev.imageFiles, file] } : prev)
       setPickerFor(null)
       toast.success('已选为配图，保存后生效')
     } catch {
@@ -193,9 +216,9 @@ function MinePage() {
     const res = await fetch(`/userdata/text?name=${encodeURIComponent(item.name)}`, { method: 'DELETE' })
     const out = (await res.json()) as { ok?: boolean; error?: { message?: string } }
     if (!res.ok || !out.ok) return toast.error(out.error?.message || '删除失败')
-    // 同名配图一并删除（best-effort，删文字已成功即可）
-    if (item.imageName) {
-      void fetch(`/userdata/image?name=${encodeURIComponent(item.imageName)}`, { method: 'DELETE' })
+    // 所有关联配图一并删除（服务端已删，这里 best-effort 兜底兼容旧镜像）
+    for (const img of item.imageNames || (item.imageName ? [item.imageName] : [])) {
+      void fetch(`/userdata/image?name=${encodeURIComponent(img)}`, { method: 'DELETE' })
     }
     toast.success('已删除')
     void load()
@@ -275,12 +298,13 @@ function MinePage() {
           {filtered.map((item) => {
             const isText = item.kind === 'text'
             const hasImg = Boolean(item.url)
+            const imgCount = isText ? (item.imageNames?.length || (item.url ? 1 : 0)) : 0
             return (
               <div key={item.name} className="overflow-hidden rounded-xl border bg-card">
                 {hasImg ? (
                   <div className="relative aspect-square bg-muted/60">
                     <img src={item.url || undefined} alt={item.caption || item.label || item.name} loading="lazy" className="size-full object-contain" />
-                    {isText && <span className="absolute top-1 left-1 rounded bg-primary/80 px-1.5 py-0.5 text-[10px] text-primary-foreground">图文</span>}
+                    {isText && <span className="absolute top-1 left-1 rounded bg-primary/80 px-1.5 py-0.5 text-[10px] text-primary-foreground">图文{imgCount > 1 ? ` · ${imgCount}图` : ''}</span>}
                     {!isText && <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{formatSize(item.size)}</div>}
                   </div>
                 ) : (
@@ -345,13 +369,17 @@ function MinePage() {
                 <p className="mt-1 text-xs text-muted-foreground">图片项改名会同时改文件名；文字项改名会同时改配图名。</p>
               </div>
 
-              {/* 图片 + 换图 */}
+              {/* 图片 + 换图/加图 */}
               <div>
-                <label className="mb-1.5 block text-sm font-medium">{edit.item.kind === 'text' ? '配图（可选）' : '图片'}</label>
+                <label className="mb-1.5 block text-sm font-medium">{edit.item.kind === 'text' ? '配图（可选，不限张数）' : '图片'}</label>
                 <div className="grid gap-3 sm:grid-cols-[200px_minmax(0,1fr)]">
                   <div className="flex min-h-36 items-center justify-center overflow-hidden rounded-xl border bg-muted/30">
-                    {edit.imageFile ? (
-                      <img src={URL.createObjectURL(edit.imageFile)} alt="新图预览" className="h-40 w-full object-contain" />
+                    {edit.item.kind === 'text' ? (
+                      <span className="p-3 text-center text-xs text-muted-foreground">
+                        {edit.item.url ? `${(edit.item.imageNames?.length || 1)} 张现有配图\n（下方管理）` : '暂无配图'}
+                      </span>
+                    ) : edit.imageFiles[0] ? (
+                      <img src={URL.createObjectURL(edit.imageFiles[0])} alt="新图预览" className="h-40 w-full object-contain" />
                     ) : edit.item.url ? (
                       <img src={edit.item.url} alt="当前图片" className="h-40 w-full object-contain" />
                     ) : (
@@ -363,17 +391,41 @@ function MinePage() {
                       ref={editImageRef}
                       type="file"
                       accept="image/*"
-                      onChange={(e) => setEdit({ ...edit, imageFile: e.target.files?.[0] || null })}
+                      multiple={edit.item.kind === 'text'}
+                      onChange={(e) => {
+                        const added = Array.from(e.target.files || [])
+                        setEdit({ ...edit, imageFiles: edit.item.kind === 'text' ? [...edit.imageFiles, ...added] : added.slice(0, 1) })
+                        e.target.value = ''
+                      }}
                       className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-xs"
                     />
                     <Button type="button" size="sm" variant="outline" onClick={() => setPickerFor('edit')}>
                       <SparklesIcon className="size-3.5" />
-                      从生成记录选图
+                      从生成记录选图（可多次选）
                     </Button>
-                    <p className="text-xs text-muted-foreground">{edit.item.kind === 'text' ? '可上传本地图片，或从生成记录里选一张作为配图。' : '可上传本地图片，或从生成记录里选一张替换当前图片（保存后生效）。'}</p>
-                    {edit.imageFile && <Button size="sm" variant="ghost" className="w-fit" onClick={() => { setEdit({ ...edit, imageFile: null }); if (editImageRef.current) editImageRef.current.value = '' }}>清除选择</Button>}
+                    <p className="text-xs text-muted-foreground">{edit.item.kind === 'text' ? '可多选/多次添加，保存后一起入库；点 × 移除旧图或新加图。' : '可上传本地图片替换当前图片（保存后生效）。'}</p>
                   </div>
                 </div>
+                {edit.item.kind === 'text' && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(edit.item.imageNames || []).map((n) => {
+                      const removed = edit.removedImages.includes(n)
+                      return (
+                        <div key={n} className={`relative h-16 w-16 overflow-hidden rounded-lg border ${removed ? 'opacity-30' : ''}`}>
+                          <img src={`/userdata/img/${encodeURIComponent(n)}`} alt={n} className="size-full object-cover" />
+                          <button type="button" title={removed ? '撤销移除' : '移除此图'} onClick={() => setEdit({ ...edit, removedImages: removed ? edit.removedImages.filter((x) => x !== n) : [...edit.removedImages, n] })} className="absolute top-0.5 right-0.5 rounded bg-black/60 p-0.5 text-white"><XIcon className="size-3" /></button>
+                        </div>
+                      )
+                    })}
+                    {edit.imageFiles.map((f, i) => (
+                      <div key={`new-${i}`} className="relative h-16 w-16 overflow-hidden rounded-lg border border-primary">
+                        <img src={URL.createObjectURL(f)} alt={`新图 ${i + 1}`} className="size-full object-cover" />
+                        <span className="absolute bottom-0 left-0 rounded bg-primary/80 px-1 text-[9px] text-white">新</span>
+                        <button type="button" title="移除新图" onClick={() => setEdit({ ...edit, imageFiles: edit.imageFiles.filter((_, j) => j !== i) })} className="absolute top-0.5 right-0.5 rounded bg-black/60 p-0.5 text-white"><XIcon className="size-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 文字 / 说明 */}
