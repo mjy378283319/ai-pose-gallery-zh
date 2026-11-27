@@ -223,7 +223,8 @@ export function buildRecipePrompt(recipe: RecipeState, stylePreset = 'realistic'
   }
 
   if (clauses.length === 0) {
-    return '请先选择人像/服装/姿势或上传附加参考图。'
+    // 未选素材时提示词框保持空白（重置后也不显示占位文字）
+    return ''
   }
 
   const lines = [
