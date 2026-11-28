@@ -376,8 +376,10 @@ function StudioPage() {
 
   // Omni 工作流支持可选参考图：纯文字 / 单图 / 任意组合都能生成，不强制三个槽位。
   const optionalReferences = activeProvider === 'comfyui' && workflowSupportsOptionalImages(apiConfig.comfyuiParams.workflowJson)
+  // 图生图：拖入的附加参考图可顶替空白人像槽位（作为源图注入），不再强制选人像
+  const portraitFilledByExtra = (recipe.extraImages || []).length > 0
   const missingReferences = activeProvider === 'comfyui' && !optionalReferences ? [
-    { label: '人像', node: apiConfig.comfyuiParams.portraitNodeId, image: recipe.portrait },
+    { label: '人像', node: apiConfig.comfyuiParams.portraitNodeId, image: recipe.portrait || (portraitFilledByExtra ? {} : null) },
     { label: '服装', node: apiConfig.comfyuiParams.costumeNodeId, image: recipe.costume },
     { label: '姿势', node: apiConfig.comfyuiParams.poseNodeId, image: recipe.pose },
   ].filter((slot) => slot.node && slot.node !== 'none' && parsedComfyNodes.imageNodes.some((node) => node.id === slot.node && node.emptyValue === undefined) && !slot.image).map((slot) => slot.label) : []

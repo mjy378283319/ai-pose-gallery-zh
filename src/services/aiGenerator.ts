@@ -1421,10 +1421,14 @@ async function generateWithComfyUi(params: {
   const workflow: ComfyWorkflow = JSON.parse(check.fixedJson ?? selectedJson)
 
   // 1. 按映射槽位上传参考图并注入节点
+  // 图生图：未选人像但拖入了附加参考图时，用第一张附加图作为人像槽位源图
+  const portraitSrc = recipe.portrait
+    ? (recipe.portrait.原图 || recipe.portrait.缩略图)
+    : ((recipe.extraImages || [])[0]?.url || null)
   const slotUploads: Array<{ nodeId: string; src: string | null; prefix: string; label: string }> = [
     {
       nodeId: cp.portraitNodeId,
-      src: recipe.portrait ? recipe.portrait.原图 || recipe.portrait.缩略图 : null,
+      src: portraitSrc,
       prefix: 'studio_portrait',
       label: '人像',
     },
