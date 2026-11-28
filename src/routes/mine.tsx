@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { CheckIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, SparklesIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, SearchIcon, SparklesIcon, Trash2Icon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { toast } from '@/lib/notifications'
 import { useStudio } from '@/store/studioStore'
 
@@ -67,6 +68,7 @@ function MinePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
+  const [showImages, setShowImages] = useState(() => localStorage.getItem('mine-show-images') !== '0')
   const [added, setAdded] = useState<Set<string>>(new Set())
   const [edit, setEdit] = useState<EditState | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -260,10 +262,24 @@ function MinePage() {
         title="我的素材"
         description="图片与文字都存 NAS 挂载目录，更新镜像不丢失。点卡片上的铅笔可改标题、说明并更换图片。"
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCwIcon className="size-3.5" />
-            刷新
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { const next = !showImages; setShowImages(next); localStorage.setItem('mine-show-images', next ? '1' : '0') }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                title={showImages ? '隐藏图片（只显示文件名/文字）' : '显示图片'}
+              >
+                {showImages ? <EyeIcon className="size-3.5" /> : <EyeOffIcon className="size-3.5" />}
+                显示图片
+              </button>
+              <Switch checked={showImages} onCheckedChange={(v) => { setShowImages(v); localStorage.setItem('mine-show-images', v ? '1' : '0') }} />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+              <RefreshCwIcon className="size-3.5" />
+              刷新
+            </Button>
+          </div>
         }
       />
 
@@ -301,18 +317,18 @@ function MinePage() {
             const imgCount = isText ? (item.imageNames?.length || (item.url ? 1 : 0)) : 0
             return (
               <div key={item.name} className="overflow-hidden rounded-xl border bg-card">
-                {hasImg ? (
+                {showImages && hasImg ? (
                   <div className="relative aspect-square bg-muted/60">
                     <img src={item.url || undefined} alt={item.caption || item.label || item.name} loading="lazy" className="size-full object-contain" />
                     {isText && <span className="absolute top-1 left-1 rounded bg-primary/80 px-1.5 py-0.5 text-[10px] text-primary-foreground">图文{imgCount > 1 ? ` · ${imgCount}图` : ''}</span>}
                     {!isText && <div className="absolute right-1 bottom-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">{formatSize(item.size)}</div>}
                   </div>
                 ) : (
-                  <div className="flex min-h-28 items-start gap-2 bg-muted/40 p-2.5">
-                    <FileTextIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+                  <div className="flex min-h-20 items-start gap-2 bg-muted/40 p-2.5">
+                    {hasImg ? <EyeOffIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" /> : <FileTextIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium">{item.label || item.name}</div>
-                      <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-[11px] text-muted-foreground">{item.caption || '（空）'}</div>
+                      <div className="mt-1 line-clamp-4 whitespace-pre-wrap text-[11px] text-muted-foreground">{item.caption || (hasImg ? '（图片已隐藏）' : '（空）')}</div>
                     </div>
                   </div>
                 )}
